@@ -1,0 +1,17 @@
+node_modules
+node_modules/
+dist
+dist/
+build/
+*.log
+.env*
+.npm
+.DS_Store
+.npm
+crawl.compact.json
+crawl.json
+crawl.extraction-template.json
+llm-extraction-result.json
+template-extraction-result.json
+data/
+CLAUDE.local.md

@@ -1,0 +1,11 @@
+src/
+test/
+node_modules/
+data/
+build/
+coverage/
+*.log
+.env*
+.DS_Store
+tsconfig.json
+bun.lock
