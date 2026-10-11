@@ -83,7 +83,7 @@ export function createCrawlCommand(
           "$0 crawl https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html --fields title:string,price:number",
           "Write a template with your coding agent and print the extracted JSON.",
         )
-        .example("bunx turbo-crawl crawl https://example.com --tui", "Build the schema interactively."),
+        .example("bunx @fragmentoid/turbo-crawl crawl https://example.com --tui", "Build the schema interactively."),
     handler: async (argv) => {
       const dataDir = argv["data-dir"] ?? (process.env.TURBO_CRAWL_DATA_DIR || undefined);
       const mode = chooseCrawlMode(argv, {
@@ -93,7 +93,7 @@ export function createCrawlCommand(
 
       // Errors are reported here: yargs does not hand async handler rejections to parse().
       if (mode === "tui-unavailable") {
-        deps.stderr.write("error: The interactive TUI needs Bun. Run `bunx turbo-crawl crawl <url> --tui`, or drop --tui to run headless.\n");
+        deps.stderr.write("error: The interactive TUI needs Bun. Run `bunx @fragmentoid/turbo-crawl crawl <url> --tui`, or drop --tui to run headless.\n");
         deps.setExitCode(2);
         return;
       }

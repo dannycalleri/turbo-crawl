@@ -18,7 +18,7 @@ export function isBunRuntime(): boolean {
 
 export async function startInteractiveSession(input: InteractiveSessionInput): Promise<void> {
   if (!isBunRuntime()) {
-    throw new Error("The interactive TUI needs Bun. Run `bunx turbo-crawl crawl <url> --tui`, or drop --tui to run headless.");
+    throw new Error("The interactive TUI needs Bun. Run `bunx @fragmentoid/turbo-crawl crawl <url> --tui`, or drop --tui to run headless.");
   }
 
   // Loaded lazily: OpenTUI depends on bun:ffi and must never load under Node.

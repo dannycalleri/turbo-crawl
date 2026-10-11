@@ -1,5 +1,5 @@
 {
-  "name": "turbo-crawl",
+  "name": "@fragmentoid/turbo-crawl",
   "version": "0.1.0",
   "description": "Turn any web page into structured JSON. Claude Code or Codex writes a reusable extraction template once per URL pattern; every other page is scraped without calling a model.",
   "keywords": [
@@ -29,7 +29,7 @@
   },
   "type": "module",
   "bin": {
-    "turbo-crawl": "./dist/cli.js"
+    "turbo-crawl": "dist/cli.js"
   },
   "files": [
     "dist",

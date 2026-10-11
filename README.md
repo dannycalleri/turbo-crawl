@@ -5,7 +5,7 @@ Turn any web page into structured JSON without writing selectors.
 The first time you crawl a URL pattern, turbo-crawl asks a coding agent you already use (**Claude Code** or **Codex**) to read the page's structure and write an extraction template: CSS, JSON-LD, meta or table selectors for each field. Every selector is checked on the live page, and any that fail go back to the agent to fix. After that, every page matching the same pattern is scraped with the saved template, with **no model call**: it's fast, free and deterministic.
 
 ```console
-$ npx turbo-crawl crawl https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html \
+$ npx @fragmentoid/turbo-crawl crawl https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html \
     --fields title:string,price:number,availability:text,upc:string
 Using claude to write the template.
 Asking claude to write selectors for 4 fields…
@@ -22,7 +22,7 @@ Asking claude to write selectors for 4 fields…
   ...
 }
 
-$ npx turbo-crawl crawl https://books.toscrape.com/catalogue/sapiens-a-brief-history-of-humankind_996/index.html
+$ npx @fragmentoid/turbo-crawl crawl https://books.toscrape.com/catalogue/sapiens-a-brief-history-of-humankind_996/index.html
 Extracting with the saved template for /catalogue/:slug/index.html…
 {
   "path": "template-reuse",
@@ -41,6 +41,15 @@ Extracting with the saved template for /catalogue/:slug/index.html…
 - Chromium for Playwright: `npx playwright install chromium`.
 
 turbo-crawl runs the agent CLIs in headless mode with no tools and no access to your files. It sends them only a text outline of the page, and uses your existing login, so there are no API keys to configure.
+
+## Install
+
+```bash
+npm install -g @fragmentoid/turbo-crawl   # provides the `turbo-crawl` command
+npx playwright install chromium
+```
+
+Or run it without installing: `npx @fragmentoid/turbo-crawl crawl <url> ...`.
 
 ## Usage
 
@@ -99,7 +108,7 @@ Templates are plain JSON. You can review them, edit selectors by hand, or commit
 With [Bun](https://bun.sh) installed, run the interactive schema builder:
 
 ```bash
-bunx turbo-crawl crawl https://example.com --tui
+bunx @fragmentoid/turbo-crawl crawl https://example.com --tui
 ```
 
 It suggests stored templates and schemas for the domain, lets you build a schema field by field (or press Tab with no fields to let the agent suggest them), and shows the extracted values when the crawl is done.

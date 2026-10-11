@@ -82,7 +82,7 @@ describe("runCli crawl", () => {
 
     expect(exitCode).toBe(2);
     expect(started).toHaveLength(0);
-    expect(stderr.output).toContain("bunx turbo-crawl");
+    expect(stderr.output).toContain("bunx @fragmentoid/turbo-crawl");
   });
 
   it("returns a non-zero exit code for invalid invocations", async () => {
