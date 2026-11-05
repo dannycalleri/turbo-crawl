@@ -17,6 +17,8 @@ export type LinkSelectorValidation = {
     passed: boolean;
     links: LinkItem[];
     reason: string;
+    /** Set on a passing itemLinks selector. */
+    itemUrlPattern?: string;
 };
 
 export type ListingLinks = {
@@ -46,48 +48,59 @@ export async function validateLinkSelectors(
     role: LinkRole,
     selectors: string[],
 ): Promise<LinkSelectorValidation[]> {
-    const pageUrl = page.url();
     const results: LinkSelectorValidation[] = [];
-
-    for (const selector of selectors) {
-        let links: LinkItem[];
-        try {
-            links = await readDomLinks(page, selector);
-        } catch (error) {
-            const message = error instanceof Error ? error.message.split("\n")[0] : String(error);
-            results.push({ selector, passed: false, links: [], reason: `selector could not be evaluated: ${message}` });
-            continue;
-        }
-        const urls = links.map(link => link.url);
-
-        if (role === "itemLinks") {
-            const fit = itemLinksFit(urls, pageUrl);
-            results.push(fit.fits
-                ? { selector, passed: true, links: links.filter(link => fit.itemUrls.includes(link.url)), reason: "ok" }
-                : { selector, passed: false, links, reason: fit.reason });
-            continue;
-        }
-
-        const pageUrls = sameHostLinks(urls, pageUrl);
-        results.push(pageUrls.length > 0
-            ? { selector, passed: true, links: links.filter(link => pageUrls.includes(link.url)), reason: "ok" }
-            : { selector, passed: false, links, reason: "no link to another page on this host" });
-    }
-
+    for (const selector of selectors) results.push(await validateLinkSelector(page, role, selector));
     return results;
 }
 
 export async function readListingLinks(page: Page, template: ListingTemplate): Promise<ListingLinks | null> {
-    const items = (await validateLinkSelectors(page, "itemLinks", template.itemLinks)).find(result => result.passed);
+    const items = await firstPassing(page, "itemLinks", template.itemLinks);
     if (!items) return null;
 
-    const next = (await validateLinkSelectors(page, "nextPage", template.nextPage)).find(result => result.passed);
-    const pages = (await validateLinkSelectors(page, "pageLinks", template.pageLinks)).find(result => result.passed);
+    const next = await firstPassing(page, "nextPage", template.nextPage);
+    const pages = await firstPassing(page, "pageLinks", template.pageLinks);
 
     return {
         items: items.links,
         paginationUrls: [...new Set([...(next ? next.links.slice(0, 1) : []), ...(pages?.links ?? [])].map(link => link.url))],
     };
+}
+
+async function firstPassing(page: Page, role: LinkRole, selectors: string[]): Promise<LinkSelectorValidation | null> {
+    for (const selector of selectors) {
+        const result = await validateLinkSelector(page, role, selector);
+        if (result.passed) return result;
+    }
+    return null;
+}
+
+async function validateLinkSelector(page: Page, role: LinkRole, selector: string): Promise<LinkSelectorValidation> {
+    let links: LinkItem[];
+    try {
+        links = await readDomLinks(page, selector);
+    } catch (error) {
+        const message = error instanceof Error ? error.message.split("\n")[0] : String(error);
+        return { selector, passed: false, links: [], reason: `selector could not be evaluated: ${message}` };
+    }
+
+    const pageUrl = page.url();
+    const urls = links.map(link => link.url);
+    if (role === "itemLinks") {
+        const fit = itemLinksFit(urls, pageUrl);
+        return fit.fits
+            ? { selector, passed: true, links: keepLinks(links, fit.itemUrls), reason: "ok", itemUrlPattern: fit.itemUrlPattern }
+            : { selector, passed: false, links, reason: fit.reason };
+    }
+
+    const pageUrls = sameHostLinks(urls, pageUrl);
+    return pageUrls.length > 0
+        ? { selector, passed: true, links: keepLinks(links, pageUrls), reason: "ok" }
+        : { selector, passed: false, links, reason: "no link to another page on this host" };
+}
+
+function keepLinks(links: LinkItem[], urls: string[]): LinkItem[] {
+    const kept = new Set(urls);
+    return links.filter(link => kept.has(link.url));
 }
 
 function sameHostLinks(urls: string[], pageUrl: string): string[] {

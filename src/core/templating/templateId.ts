@@ -6,11 +6,13 @@ export function createTemplateId(
     urlPattern: string,
     schema: Record<string, FieldType>
 ): string {
-    const raw = `${domain}:${urlPattern}:${Object.keys(schema).sort().join(",")}`;
-    return `template_${crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16)}`;
+    return `template_${hashId(`${domain}:${urlPattern}:${Object.keys(schema).sort().join(",")}`)}`;
 }
 
 export function createListingTemplateId(domain: string, urlPattern: string): string {
-    const raw = `listing:${domain}:${urlPattern}`;
-    return `listing_${crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16)}`;
+    return `listing_${hashId(`listing:${domain}:${urlPattern}`)}`;
+}
+
+function hashId(raw: string): string {
+    return crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16);
 }

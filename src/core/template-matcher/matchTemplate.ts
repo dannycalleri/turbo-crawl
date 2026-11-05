@@ -10,7 +10,7 @@ export type TemplateTrial = {
 
 export type MatchDecision =
   | { kind: "fit"; trial: TemplateTrial; matchedPattern: boolean }
-  | { kind: "stale"; trial: TemplateTrial; missing: string[]; reasons: string[] }
+  | { kind: "stale"; trial: TemplateTrial; reasons: string[] }
   | { kind: "ambiguous"; trials: TemplateTrial[] }
   | { kind: "none" };
 
@@ -44,7 +44,6 @@ export function decideTemplate(trials: TemplateTrial[], options: MatchOptions): 
     return {
       kind: "stale",
       trial,
-      missing: missingFields(trial.candidate.template.schema, trial.result.payload),
       reasons: misfitReasons(trial, options.require),
     };
   }

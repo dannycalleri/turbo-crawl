@@ -1,6 +1,6 @@
 import type { Page } from "playwright";
 import { normalizeDomain } from "../domain-store";
-import { groupLinks, type LinkGroup } from "../extraction/links";
+import type { LinkGroup } from "../extraction/links";
 import type { ChatMessage, LLMProvider } from "../llm-extractor/providers/LLMProvider";
 import { inferUrlPattern } from "../templating/inferUrlPattern";
 import { createListingTemplateId } from "../templating/templateId";
@@ -124,7 +124,7 @@ export async function classifyPage(input: ClassifyPageInput): Promise<PageClassi
         itemLinks: selectorsOf(passing.itemLinks),
         nextPage: selectorsOf(passing.nextPage),
         pageLinks: selectorsOf(passing.pageLinks),
-        itemUrlPattern: groupLinks(passing.itemLinks[0]!.links.map(link => link.url), finalUrl)[0]!.urlPattern,
+        itemUrlPattern: passing.itemLinks[0]!.itemUrlPattern!,
         createdFromUrl: finalUrl,
         createdAt: (input.now ?? (() => new Date()))().toISOString(),
     };

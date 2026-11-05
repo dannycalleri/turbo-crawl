@@ -2,7 +2,7 @@ import { createHash } from "crypto";
 import { access, mkdir, readdir, readFile, rm, writeFile } from "fs/promises";
 import path from "path";
 import type { CompactPagePacket } from "./compactPagePacket.ts";
-import { FIELD_TYPES, type FieldType, type LLMExtractionResult, type UserSchema } from "./llm-extractor/types.ts";
+import { isFieldType, type FieldType, type LLMExtractionResult, type UserSchema } from "./llm-extractor/types.ts";
 import type { TemplateExtractionResult } from "./template-extractor/types.ts";
 import type { ExtractionTemplate, ListingTemplate } from "./templating/types.ts";
 import type { PagePacket } from "./types.ts";
@@ -186,32 +186,11 @@ export async function saveListingTemplate(
 export async function listListingTemplates(
   store: DomainStore,
 ): Promise<ReuseDiscoveryResult<ListingTemplateArtifact>> {
-  const warnings: ReuseWarning[] = [];
-  const candidates: ListingTemplateArtifact[] = [];
-
-  for (const entry of await readDirectoryEntries(store.listingsPath)) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-
-    const artifactPath = path.join(store.listingsPath, entry.name);
-    const value = await readJsonFile<unknown>(artifactPath).catch(error => {
-      warnings.push({
-        operation: "read-json",
-        path: artifactPath,
-        message: `Unable to read listing template JSON at ${artifactPath}: ${getErrorMessage(error)}`,
-        recoverable: true,
-      });
-      return null;
-    });
-    if (value === null) continue;
-
-    if (!isListingTemplate(value) || normalizeStoredDomain(value.domain) !== store.domain) {
-      pushTemplateValidationWarning(warnings, artifactPath, `Listing template is invalid or does not match domain ${store.domain}.`);
-      continue;
-    }
-    candidates.push({ path: artifactPath, template: value });
-  }
-
-  return { candidates: candidates.sort((left, right) => left.path.localeCompare(right.path)), warnings };
+  return readTemplateArtifacts(store.listingsPath, "listing template", (value, artifactPath, warnings) => {
+    if (isListingTemplate(value) && normalizeStoredDomain(value.domain) === store.domain) return value;
+    pushTemplateValidationWarning(warnings, artifactPath, `Listing template is invalid or does not match domain ${store.domain}.`);
+    return null;
+  });
 }
 
 function isListingTemplate(value: unknown): value is ListingTemplate {
@@ -236,43 +215,42 @@ export async function listTemplatesForDomain(
   store: DomainStore,
   options: { fields?: UserSchema } = {},
 ): Promise<ReuseDiscoveryResult<TemplateMatchCandidate>> {
+  return readTemplateArtifacts(store.templatesPath, "template", (value, artifactPath, warnings) => {
+    const template = validateTemplateArtifact(value, store, artifactPath, warnings);
+    return template && (!options.fields || schemasMatch(template.schema, options.fields)) ? template : null;
+  });
+}
+
+async function readTemplateArtifacts<T>(
+  directoryPath: string,
+  label: string,
+  validate: (value: unknown, artifactPath: string, warnings: ReuseWarning[]) => T | null,
+): Promise<ReuseDiscoveryResult<{ path: string; template: T }>> {
+  const paths = (await readDirectoryEntries(directoryPath))
+    .filter(entry => entry.isFile() && entry.name.endsWith(".json"))
+    .map(entry => path.join(directoryPath, entry.name))
+    .sort((left, right) => left.localeCompare(right));
+  const values = await Promise.all(paths.map(artifactPath =>
+    readJsonFile<unknown>(artifactPath).then(value => ({ value }), (error: unknown) => ({ error }))));
+
   const warnings: ReuseWarning[] = [];
-  const entries = await readDirectoryEntries(store.templatesPath);
-  const candidates: TemplateMatchCandidate[] = [];
-
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) {
-      continue;
-    }
-
-    const artifactPath = path.join(store.templatesPath, entry.name);
-    let value: unknown;
-
-    try {
-      value = await readJsonFile<unknown>(artifactPath);
-    } catch (error) {
+  const candidates: Array<{ path: string; template: T }> = [];
+  paths.forEach((artifactPath, index) => {
+    const read = values[index]!;
+    if ("error" in read) {
       warnings.push({
         operation: "read-json",
         path: artifactPath,
-        message: `Unable to read template JSON at ${artifactPath}: ${getErrorMessage(error)}`,
+        message: `Unable to read ${label} JSON at ${artifactPath}: ${getErrorMessage(read.error)}`,
         recoverable: true,
       });
-      continue;
+      return;
     }
+    const template = validate(read.value, artifactPath, warnings);
+    if (template !== null) candidates.push({ path: artifactPath, template });
+  });
 
-    const template = validateTemplateArtifact(value, store, artifactPath, warnings);
-
-    if (template === null || (options.fields && !schemasMatch(template.schema, options.fields))) {
-      continue;
-    }
-
-    candidates.push({ path: artifactPath, template });
-  }
-
-  return {
-    candidates: candidates.sort((left, right) => left.path.localeCompare(right.path)),
-    warnings,
-  };
+  return { candidates, warnings };
 }
 
 const patternWrites = new Map<string, Promise<void>>();
@@ -281,10 +259,8 @@ export function addPatternToTemplate(templatePath: string, urlPattern: string): 
   const previous = patternWrites.get(templatePath) ?? Promise.resolve();
   const next = previous.catch(() => {}).then(async () => {
     const template = await readJsonFile<Record<string, unknown>>(templatePath);
-    const { urlPattern: legacy, ...rest } = template;
-    const patterns = Array.isArray(rest.urlPatterns)
-      ? (rest.urlPatterns as string[])
-      : typeof legacy === "string" ? [legacy] : [];
+    const { urlPattern: _legacy, ...rest } = template;
+    const patterns = readUrlPatterns(template) ?? [];
     if (!patterns.includes(urlPattern)) {
       await writeJsonFile(templatePath, { ...rest, urlPatterns: [...patterns, urlPattern] });
     }
@@ -551,9 +527,6 @@ function isUserSchema(value: unknown): value is UserSchema {
   );
 }
 
-function isFieldType(value: unknown): value is FieldType {
-  return (FIELD_TYPES as readonly unknown[]).includes(value);
-}
 
 function normalizeStoredDomain(domain: string): string {
   const lower = domain.toLowerCase();
