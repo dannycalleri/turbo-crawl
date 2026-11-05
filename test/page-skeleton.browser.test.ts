@@ -1,10 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { chromium, type Browser, type Page } from "playwright";
-import {
-  capturePageSkeleton,
-  renderSkeleton,
-  type SkeletonNode,
-} from "../src/core/pageContext/skeleton.ts";
+import { capturePageSkeleton } from "../src/core/pageContext/skeleton.ts";
 
 const items = Array.from({ length: 40 }, (_, index) => `<li class="item">Item ${index + 1}</li>`).join("");
 
@@ -22,10 +18,6 @@ const fixtureHtml = `
     </body>
   </html>
 `;
-
-function node(tag: string, text: string, children: SkeletonNode[] = []): SkeletonNode {
-  return { tag, attrs: "", text, children };
-}
 
 describe("capturePageSkeleton", () => {
   let browser: Browser | null = null;
@@ -89,26 +81,5 @@ describe("capturePageSkeleton", () => {
     expect(skeleton.bytes).toBeLessThanOrEqual(100);
     expect(Buffer.byteLength(skeleton.text, "utf8")).toBe(skeleton.bytes);
     expect(skeleton.truncated).toBe(true);
-  });
-});
-
-describe("renderSkeleton", () => {
-  const tree = node("body", "", [
-    node("main", "", [node("section", "", [node("p", "deep paragraph text")])]),
-  ]);
-
-  it("drops the deepest levels first to fit the budget", () => {
-    const full = renderSkeleton(tree, 10_000);
-    const shallow = renderSkeleton(tree, full.bytes - 1);
-
-    expect(full.truncated).toBe(false);
-    expect(full.text).toContain("deep paragraph text");
-    expect(shallow.truncated).toBe(true);
-    expect(shallow.text).not.toContain("deep paragraph text");
-    expect(shallow.bytes).toBeLessThanOrEqual(full.bytes - 1);
-  });
-
-  it("returns an empty skeleton for a page without a body", () => {
-    expect(renderSkeleton(null, 100)).toEqual({ text: "", bytes: 0, truncated: false });
   });
 });

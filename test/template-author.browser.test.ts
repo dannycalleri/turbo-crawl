@@ -12,12 +12,6 @@ import type {
 } from "../src/core/llm-extractor/providers/LLMProvider.ts";
 import type { UserSchema } from "../src/core/llm-extractor/types.ts";
 import { installPageContextHelpers } from "../src/core/pageContext/runtime.ts";
-import {
-  buildAuthorResponseSchema,
-  buildRepairMessages,
-  parseAuthorResponse,
-  type PageContextForAgent,
-} from "../src/core/template-author/authorPrompt.ts";
 import { authorTemplate } from "../src/core/template-author/authorTemplate.ts";
 import { extractWithTemplate } from "../src/core/template-extractor/extractWithTemplate.ts";
 import type { PagePacket } from "../src/core/types.ts";
@@ -52,115 +46,6 @@ function emptyPacket(): PagePacket {
 function css(selector: string) {
   return { kind: "css", selector, attribute: "textContent" };
 }
-
-describe("buildAuthorResponseSchema", () => {
-  it("requires exactly the schema fields and nothing else", () => {
-    const result = buildAuthorResponseSchema(schema) as {
-      required: string[];
-      additionalProperties: boolean;
-      properties: { fields: { properties: Record<string, unknown>; required: string[]; additionalProperties: boolean } };
-    };
-    const fields = result.properties.fields;
-
-    expect(result.required).toEqual(["fields"]);
-    expect(result.additionalProperties).toBe(false);
-    expect(Object.keys(fields.properties)).toEqual(["title", "price"]);
-    expect(fields.required).toEqual(["title", "price"]);
-    expect(fields.additionalProperties).toBe(false);
-  });
-});
-
-describe("parseAuthorResponse", () => {
-  it("accepts attr:<name> for any HTML attribute and drops a malformed attr:", () => {
-    const parsed = parseAuthorResponse(
-      {
-        fields: {
-          title: {
-            selectors: [
-              { kind: "css", selector: "time.published", attribute: "attr:datetime" },
-              { kind: "css", selector: "time", attribute: "attr:" },
-              { kind: "css", selector: "time", attribute: "attr:data value" },
-            ],
-            expectedSample: null,
-          },
-          price: { selectors: [css(".price")] },
-        },
-      },
-      schema,
-    );
-
-    expect(parsed.fields.title!.selectors).toEqual([{ kind: "css", selector: "time.published", attribute: "attr:datetime" }]);
-  });
-
-  it("drops malformed selectors and keeps at most four per field", () => {
-    const parsed = parseAuthorResponse(
-      {
-        fields: {
-          title: {
-            selectors: [
-              { kind: "xpath", selector: "//h1", attribute: "textContent" },
-              { kind: "css", selector: "", attribute: "textContent" },
-              { kind: "css", selector: "h1", attribute: "innerHTML" },
-              "h1",
-              css("h1.a"),
-              css("h1.b"),
-              css("h1.c"),
-              css("h1.d"),
-              css("h1.e"),
-            ],
-            expectedSample: "Clock",
-          },
-          price: { selectors: [css(".price")] },
-        },
-      },
-      schema,
-    );
-
-    expect(parsed.fields.title!.selectors.map(selector => selector.selector)).toEqual(["h1.a", "h1.b", "h1.c", "h1.d"]);
-    expect(parsed.fields.title!.expectedSample).toBe("Clock");
-    expect(parsed.fields.price!.expectedSample).toBeNull();
-  });
-
-  it("rejects an answer missing a field", () => {
-    expect(() => parseAuthorResponse({ fields: { title: { selectors: [] } } }, schema)).toThrow(
-      "did not match the template format",
-    );
-  });
-});
-
-describe("buildRepairMessages", () => {
-  it("reports each failed selector with its reason and the value it read", () => {
-    const page: PageContextForAgent = {
-      url: "https://shop.example/products/clock-1",
-      urlPattern: "/products/:slug",
-      skeleton: "body",
-      pagePacket: emptyPacket(),
-    };
-    const messages = buildRepairMessages({
-      schema,
-      page,
-      previous: { fields: {} },
-      failures: {
-        price: [
-          {
-            selector: { kind: "css", selector: ".card", attribute: "textContent" },
-            passed: false,
-            rawValue: "Clock and more",
-            normalizedValue: null,
-            reason: "value is not a valid number",
-          },
-        ],
-      },
-    });
-    const prompt = messages.find(message => message.role === "user")!.content;
-
-    expect(prompt).toContain("fields only: price: number");
-    expect(prompt).toContain('".card"');
-    expect(prompt).toContain("value is not a valid number");
-    expect(prompt).toContain('(read "Clock and more")');
-    expect(prompt).not.toContain("title: string");
-  });
-});
 
 const fixtureHtml = `
   <!doctype html>

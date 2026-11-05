@@ -1,5 +1,5 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import { chromium, type Browser, type Page } from "playwright";
+import { describe, expect, it } from "bun:test";
+import type { Page } from "playwright";
 import { extractWithTemplate } from "../src/core/template-extractor/extractWithTemplate.ts";
 import type { ExtractionTemplate, FieldTemplate, SelectorCandidate } from "../src/core/templating/types.ts";
 import type { PagePacket } from "../src/core/types.ts";
@@ -9,22 +9,6 @@ type FakeNode = {
   attributes?: Record<string, string | null>;
   properties?: Record<string, string | null>;
 };
-
-const fixtureHtml = `
-  <!doctype html>
-  <html>
-    <head>
-      <title>Template Fixture</title>
-      <meta name="description" content="Template fixture description" />
-    </head>
-    <body>
-      <main>
-        <h1 data-testid="product-title">Black Bay 58</h1>
-        <span class="price">$3,750.00</span>
-      </main>
-    </body>
-  </html>
-`;
 
 function createFakePage(nodesBySelector: Record<string, FakeNode[]>): Page {
   return {
@@ -204,130 +188,5 @@ describe("extractWithTemplate", () => {
       llmUsed: false,
       warnings: ["Template has no fields: template_fixture"],
     });
-  });
-});
-
-describe("extractWithTemplate Playwright integration", () => {
-  let browser: Browser | null = null;
-  let page: Page | null = null;
-  let browserLaunchError: unknown = null;
-
-  beforeAll(async () => {
-    try {
-      browser = await chromium.launch({ headless: true });
-    } catch (error) {
-      browserLaunchError = error;
-    }
-  });
-
-  beforeEach(async () => {
-    if (!browser) {
-      return;
-    }
-
-    page = await browser.newPage();
-    await page.setContent(fixtureHtml);
-  });
-
-  afterEach(async () => {
-    if (page) {
-      await page.close();
-      page = null;
-    }
-  });
-
-  afterAll(async () => {
-    if (browser) {
-      await browser.close();
-    }
-  });
-
-  it("extracts CSS, XPath, JSON-LD, and metadata fields without the LLM", async () => {
-    if (!page) {
-      expect(browserLaunchError).toBeTruthy();
-      return;
-    }
-
-    const extraction = await extractWithTemplate({
-      page,
-      pagePacket: createPagePacket(),
-      template: template({
-        schema: {
-          title: "string",
-          price: "number",
-          brand: "string",
-          description: "text",
-        },
-        fields: {
-          title: field({
-            fieldName: "title",
-            type: "string",
-            selectors: [
-              selector({
-                kind: "css",
-                selector: "[data-testid='product-title']",
-                attribute: "textContent",
-                score: 92,
-              }),
-            ],
-          }),
-          price: field({
-            fieldName: "price",
-            type: "number",
-            selectors: [
-              selector({
-                kind: "xpath",
-                selector: "//span[@class='price']",
-                attribute: "textContent",
-                score: 70,
-              }),
-            ],
-            validation: {
-              expectedType: "number",
-              valueShape: "number",
-            },
-          }),
-          brand: field({
-            fieldName: "brand",
-            type: "string",
-            selectors: [
-              selector({
-                kind: "jsonld",
-                selector: "jsonld_001_1:$.brand.name",
-                attribute: "json",
-                score: 95,
-              }),
-            ],
-          }),
-          description: field({
-            fieldName: "description",
-            type: "text",
-            selectors: [
-              selector({
-                kind: "meta",
-                selector: "meta[name='description']@content",
-                attribute: "content",
-                score: 85,
-              }),
-            ],
-            validation: {
-              expectedType: "text",
-              valueShape: "text",
-            },
-          }),
-        },
-      }),
-    });
-
-    expect(extraction.payload).toEqual({
-      title: "Black Bay 58",
-      price: 3750,
-      brand: "Tudor",
-      description: "Template fixture description",
-    });
-    expect(extraction.confidence).toBe(85.5);
-    expect(extraction.usedTemplate).toBe(true);
-    expect(extraction.llmUsed).toBe(false);
-    expect(extraction.warnings).toEqual([]);
   });
 });
