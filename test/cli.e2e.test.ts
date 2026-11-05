@@ -23,25 +23,28 @@ function productPage(title: string, price: string): string {
 </html>`;
 }
 
-function categoryPage(): string {
-  const cards = ["clock-1", "watch-2", "clock-4", "clock-5", "clock-6"]
-    .map(slug => `<li><a class="card-link" href="/products/${slug}">${slug}</a></li>`)
-    .join("");
+function categoryPage(title: string, slugs: string[], next: string | null): string {
+  const cards = slugs.map(slug => `<li><a class="card-link" href="/products/${slug}">${slug}</a></li>`).join("");
   return `<!doctype html>
 <html>
-  <head><title>Clocks | Shop</title></head>
+  <head><title>${title} | Shop</title></head>
   <body>
     <main>
-      <h1>Clocks</h1>
+      <h1>${title}</h1>
       <ul class="grid">${cards}</ul>
-      <a rel="next" href="/category/clocks?page=2">Next</a>
+      ${next ? `<a rel="next" href="${next}">Next</a>` : ""}
     </main>
   </body>
 </html>`;
 }
 
+const watchSlugs = ["watch-10", "watch-11", "watch-12", "watch-13", "watch-14", "watch-15"];
+
 const pages: Record<string, string> = {
-  "/category/clocks": categoryPage(),
+  "/category/clocks": categoryPage("Clocks", ["clock-1", "watch-2", "clock-4", "clock-5", "clock-6"], "/category/clocks?page=2"),
+  "/category/watches": categoryPage("Watches", watchSlugs.slice(0, 4), "/category/watches?page=2"),
+  "/category/watches?page=2": categoryPage("Watches", watchSlugs.slice(4), null),
+  ...Object.fromEntries(watchSlugs.map((slug, index) => [`/products/${slug}`, productPage(`Watch ${index + 10}`, `€${index + 10}.00`)])),
   "/robots.txt": "User-agent: *\nDisallow: /private/\n",
   "/products/clock-1": productPage("Clock", "€49.00"),
   "/products/watch-2": productPage("Watch", "€120.50"),
@@ -109,7 +112,8 @@ describe("turbo-crawl CLI end to end", () => {
       fetch(request) {
         userAgents.push(request.headers.get("user-agent") ?? "");
         requestedPaths.push(new URL(request.url).pathname);
-        const html = pages[new URL(request.url).pathname];
+        const url = new URL(request.url);
+        const html = pages[url.pathname + url.search] ?? pages[url.pathname];
         return html
           ? new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } })
           : new Response("not found", { status: 404 });
@@ -242,7 +246,7 @@ describe("turbo-crawl CLI end to end", () => {
       const base = `http://127.0.0.1:${server!.port}`;
       const callsBefore = (await readFile(counterFile, "utf8").catch(() => "")).trim().split("\n").filter(Boolean).length;
 
-      const listing = await runCli(["crawl", `${base}/category/clocks`, "--data-dir", path.join(workDir, "data")], env, workDir);
+      const listing = await runCli(["crawl", `${base}/category/clocks`, "--no-follow", "--data-dir", path.join(workDir, "data")], env, workDir);
 
       expect(listing.stderr).not.toContain("error:");
       expect(listing.code).toBe(0);
@@ -258,11 +262,40 @@ describe("turbo-crawl CLI end to end", () => {
       const callsAfter = (await readFile(counterFile, "utf8")).trim().split("\n").length;
       expect(callsAfter - callsBefore).toBe(1);
 
-      const again = await runCli(["crawl", `${base}/category/clocks`, "--data-dir", path.join(workDir, "data")], env, workDir);
+      const again = await runCli(["crawl", `${base}/category/clocks`, "--no-follow", "--data-dir", path.join(workDir, "data")], env, workDir);
       expect(again.code).toBe(0);
       expect(JSON.parse(again.stdout)).toMatchObject({ kind: "listing", llmUsed: false, itemUrls: printed.itemUrls });
       expect((await readFile(counterFile, "utf8")).trim().split("\n")).toHaveLength(callsAfter);
     },
     30_000,
+  );
+
+  it(
+    "follows a two-page category: one JSON line per item, and no agent call on the second run",
+    async () => {
+      if (buildError !== null) return;
+
+      const base = `http://127.0.0.1:${server!.port}`;
+      const dataDir = path.join(workDir, "data-follow");
+      const agentCalls = async () => (await readFile(counterFile, "utf8").catch(() => "")).trim().split("\n").filter(Boolean).length;
+      const follow = () =>
+        runCli(["crawl", `${base}/category/watches`, "--fields", "title:string,price:number", "--delay-ms", "0", "--data-dir", dataDir], env, workDir);
+      const before = await agentCalls();
+
+      const first = await follow();
+
+      expect(first.stderr).toContain("Crawled 2 listing page(s): 6 item(s) extracted, 0 failed.");
+      expect(first.code).toBe(0);
+      const items = first.stdout.trim().split("\n").map(line => JSON.parse(line));
+      expect(items.map(item => [item.url, item.data.title])).toEqual(watchSlugs.map((slug, index) => [`${base}/products/${slug}`, `Watch ${index + 10}`]));
+      expect((await agentCalls()) - before).toBe(2);
+
+      const again = await follow();
+
+      expect(again.code).toBe(0);
+      expect(again.stdout.trim().split("\n")).toHaveLength(6);
+      expect((await agentCalls()) - before).toBe(2);
+    },
+    60_000,
   );
 });

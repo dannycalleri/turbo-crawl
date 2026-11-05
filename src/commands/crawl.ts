@@ -13,6 +13,10 @@ export type CrawlArguments = {
   author?: boolean;
   artifacts?: boolean;
   require?: string;
+  follow?: boolean;
+  "max-pages"?: number;
+  "max-items"?: number;
+  "delay-ms"?: number;
   json?: boolean;
 };
 
@@ -77,6 +81,26 @@ export function createCrawlCommand(
           default: true,
           describe: "Save the page packet and result under the data folder. --no-artifacts saves only templates.",
         })
+        .option("follow", {
+          type: "boolean",
+          default: true,
+          describe: "On a listing page, extract every item and follow the pagination, printing one JSON line per item. --no-follow prints only the item and pagination URLs.",
+        })
+        .option("max-pages", {
+          type: "number",
+          describe: "Most listing pages to read when following a listing, the first one included.",
+          default: 10,
+        })
+        .option("max-items", {
+          type: "number",
+          describe: "Most items to extract when following a listing.",
+          default: 200,
+        })
+        .option("delay-ms", {
+          type: "number",
+          describe: "Milliseconds to wait before each page request when following a listing.",
+          default: 250,
+        })
         .option("json", {
           type: "boolean",
           describe: "Accepted for compatibility. The result is always printed as JSON.",
@@ -86,7 +110,11 @@ export function createCrawlCommand(
           "$0 crawl https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html --fields title:string,price:number",
           "Write a template with your coding agent and print the extracted JSON.",
         )
-        .example("$0 crawl https://example.com", "Let the agent suggest the fields."),
+        .example("$0 crawl https://example.com", "Let the agent suggest the fields.")
+        .example(
+          "$0 crawl https://books.toscrape.com/catalogue/category/books/travel_2/index.html --fields title:string,price:number",
+          "Follow a category: one JSON line per book.",
+        ),
     handler: async (argv) => {
       const dataDir = argv["data-dir"] ?? (process.env.TURBO_CRAWL_DATA_DIR || undefined);
 
@@ -103,6 +131,10 @@ export function createCrawlCommand(
           author: argv.author,
           artifacts: argv.artifacts,
           require: argv.require,
+          follow: argv.follow,
+          maxPages: argv["max-pages"],
+          maxItems: argv["max-items"],
+          delayMs: argv["delay-ms"],
         }),
       );
     },
