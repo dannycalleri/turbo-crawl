@@ -3,6 +3,7 @@ import type { CrawlOptions, CrawlOutcome, CrawlStartInput, ItemOutcome, ListingO
 import { CrawlFailure, type CrawlFailureCode, type PolicyInfo } from "../src/core/policy/policy.ts";
 import { createCrawler, type CrawlerOptions, type LibraryDependencies } from "../src/lib.ts";
 import { createCrawlRunner, defaultStartCrawlDependencies } from "../src/core/crawl-run.ts";
+import { createRobotsChecker, type RobotsFetch } from "../src/core/policy/robots.ts";
 import type { PagePacket } from "../src/core/types.ts";
 import type { Page } from "playwright";
 import { mkdtemp, rm } from "fs/promises";
@@ -192,5 +193,78 @@ describe("createCrawler", () => {
         ...(code === "AMBIGUOUS_TEMPLATE" ? { templatePaths: ["a.json", "b.json"] } : {}),
       });
     }
+  });
+});
+
+describe("concurrent calls", () => {
+  function pagedFakes(renderMs: () => Promise<void>) {
+    let open = 0;
+    let maxOpen = 0;
+    let closed = false;
+    const robotsFetches: string[] = [];
+    const fetch: RobotsFetch = async url => {
+      robotsFetches.push(url);
+      return { status: 404, text: async () => "" };
+    };
+    const deps: LibraryDependencies = {
+      ...fakes(async () => article).deps,
+      createBrowserSession: () => ({
+        async withRenderedPage(_url, handler) {
+          open += 1;
+          maxOpen = Math.max(maxOpen, open);
+          try {
+            await renderMs();
+            return await handler({ page: {} as Page, pagePacket: {} as PagePacket });
+          } finally {
+            open -= 1;
+          }
+        },
+        close: async () => {
+          closed = true;
+        },
+      }),
+      createRobotsChecker: userAgent => createRobotsChecker({ userAgent, fetch }),
+      createRunner: (runnerOptions, session) => ({
+        async startCrawl(input) {
+          await runnerOptions.robots?.check(input.target);
+          return session.withRenderedPage(input.target, () => ({ ...article, target: input.target }));
+        },
+      }),
+    };
+    return { deps, robotsFetches, get maxOpen() { return maxOpen; }, get closed() { return closed; } };
+  }
+
+  it("keeps at most maxConcurrentPages pages open and fetches robots.txt once per host", async () => {
+    const f = pagedFakes(() => new Promise(resolve => setTimeout(resolve, 5)));
+    const crawler = createCrawler({ ...options, maxConcurrentPages: 2 }, f.deps);
+    const urls = Array.from({ length: 8 }, (_, i) => `https://${i % 2 ? "a" : "b"}.com/news/item-${i}`);
+
+    const results = await Promise.all(urls.map(url => crawler.extract(url)));
+
+    expect(results.map(result => result.ok && result.url)).toEqual(urls);
+    expect(f.maxOpen).toBe(2);
+    expect(f.robotsFetches.sort()).toEqual(["https://a.com/robots.txt", "https://b.com/robots.txt"]);
+  });
+
+  it("closes the browser only after the running calls finish, and refuses later calls", async () => {
+    const releases: Array<() => void> = [];
+    const f = pagedFakes(() => new Promise(resolve => releases.push(resolve)));
+    const crawler = createCrawler(options, f.deps);
+
+    const calls = [crawler.extract("https://a.com/news/one"), crawler.extract("https://a.com/news/two")];
+    while (releases.length < 2) await new Promise(resolve => setTimeout(resolve, 1));
+    const closing = crawler.close();
+    await new Promise(resolve => setTimeout(resolve, 5));
+
+    expect(f.closed).toBe(false);
+    releases.forEach(release => release());
+    expect((await Promise.all(calls)).every(result => result.ok)).toBe(true);
+    await closing;
+    expect(f.closed).toBe(true);
+    await expect(crawler.extract("https://a.com/news/three")).rejects.toThrow("closed");
+  });
+
+  it("rejects a maxConcurrentPages below 1", () => {
+    expect(() => createCrawler({ ...options, maxConcurrentPages: 0 }, fakes(async () => article).deps)).toThrow("maxConcurrentPages");
   });
 });

@@ -50,11 +50,25 @@ export function createCrawler(
 ): Crawler {
   validateOptions(options);
 
-  const session = deps.createBrowserSession({
+  const browser = deps.createBrowserSession({
     userAgent: options.userAgent,
     navigationTimeoutMs: options.navigationTimeoutMs,
     settleTimeoutMs: options.settleTimeoutMs,
   });
+  const pages = createSemaphore(options.maxConcurrentPages ?? DEFAULT_MAX_CONCURRENT_PAGES);
+  const session: BrowserSession = {
+    withRenderedPage: (url, handler) => pages.run(() => browser.withRenderedPage(url, handler)),
+    close: () => browser.close(),
+  };
+  const running = new Set<Promise<unknown>>();
+  let closed = false;
+  const track = <T>(call: () => Promise<T>): Promise<T> => {
+    if (closed) return Promise.reject(new Error("This crawler is closed. Create a new one with createCrawler()."));
+    const promise = call();
+    running.add(promise);
+    void promise.finally(() => running.delete(promise)).catch(() => {});
+    return promise;
+  };
   let resolved: ResolvedProvider | null = null;
   const runner = deps.createRunner(
     {
@@ -78,7 +92,7 @@ export function createCrawler(
   );
 
   return {
-    async extract(url, extractOptions = {}) {
+    extract: (url, extractOptions = {}) => track(async () => {
       validateExtractOptions(extractOptions);
       return run<ExtractResult>(runner, url, {
         target: url,
@@ -94,9 +108,9 @@ export function createCrawler(
           stale: outcome.stale,
         };
       });
-    },
-    async links(url) {
-      return run<LinksResult>(runner, url, { target: url, schema: {}, expect: "listing" }, outcome => {
+    }),
+    links: url => track(() =>
+      run<LinksResult>(runner, url, { target: url, schema: {}, expect: "listing" }, outcome => {
         if (outcome.kind !== "listing") throw new Error(`expected a listing result for ${url}`);
         return {
           ...pageResult(outcome),
@@ -104,9 +118,32 @@ export function createCrawler(
           paginationUrls: outcome.paginationUrls,
           patterns: outcome.linkGroups,
         };
-      });
+      })),
+    async close() {
+      closed = true;
+      await Promise.allSettled(running);
+      await session.close();
     },
-    close: () => session.close(),
+  };
+}
+
+const DEFAULT_MAX_CONCURRENT_PAGES = 4;
+
+function createSemaphore(limit: number) {
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  return {
+    async run<T>(task: () => Promise<T>): Promise<T> {
+      if (active >= limit) await new Promise<void>(resolve => waiting.push(resolve));
+      else active += 1;
+      try {
+        return await task();
+      } finally {
+        const next = waiting.shift();
+        if (next) next();
+        else active -= 1;
+      }
+    },
   };
 }
 
@@ -164,6 +201,9 @@ function validateOptions(options: CrawlerOptions): void {
   }
   for (const name of ["respectRobots", "writeArtifacts"] as const) {
     if (options[name] !== undefined && typeof options[name] !== "boolean") fail(`options.${name} must be true or false.`);
+  }
+  if (options.maxConcurrentPages !== undefined && (!Number.isInteger(options.maxConcurrentPages) || options.maxConcurrentPages < 1)) {
+    fail("options.maxConcurrentPages must be a whole number of 1 or more.");
   }
   for (const name of ["navigationTimeoutMs", "settleTimeoutMs"] as const) {
     const value = options[name];

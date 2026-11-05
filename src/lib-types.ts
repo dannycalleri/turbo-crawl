@@ -18,6 +18,8 @@ export type CrawlerOptions = {
   navigationTimeoutMs?: number;
   /** Default 10000. */
   settleTimeoutMs?: number;
+  /** Default 4. Further calls wait in first-in-first-out order. */
+  maxConcurrentPages?: number;
 };
 
 export type ExtractOptions = {
@@ -114,5 +116,6 @@ export type LinksResult = LinksSuccess | CrawlError;
 export type Crawler = {
   extract(url: string, options?: ExtractOptions): Promise<ExtractResult>;
   links(url: string): Promise<LinksResult>;
+  /** Waits for the running calls, then closes the browser. Later calls reject. */
   close(): Promise<void>;
 };
