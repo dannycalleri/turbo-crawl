@@ -4,6 +4,8 @@ import type { LLMProvider } from "./llm-extractor/providers/LLMProvider.ts";
 import type { UserSchema } from "./llm-extractor/types.ts";
 import type { ExtractionTemplate } from "./templating/types.ts";
 import { inferUrlPattern } from "./templating/inferUrlPattern.ts";
+import { buildPolicy, CrawlFailure, failureForStatus, type PolicyInfo } from "./policy/policy.ts";
+import type { RobotsChecker, RobotsStatus } from "./policy/robots.ts";
 import { extractWithTemplate } from "./template-extractor/extractWithTemplate.ts";
 import type { TemplateExtractionResult } from "./template-extractor/types.ts";
 import { capturePageSkeleton, type PageSkeleton } from "./pageContext/skeleton.ts";
@@ -48,6 +50,7 @@ export type CrawlOutcome = {
   templateId: string;
   templatePath: string | null;
   artifactFolder: string;
+  policy: PolicyInfo;
   warnings: string[];
 };
 
@@ -62,6 +65,7 @@ export type CrawlOptions = {
   maxRepairs?: number;
   dataDir?: string;
   userAgent?: string;
+  robots?: RobotsChecker | null;
   onProgress?: (message: string) => void;
 };
 
@@ -125,10 +129,28 @@ export async function startCrawl(
   let userSchema = input.source === "template-reuse" ? input.template.schema : input.schema;
   const store = deps.createDomainStore({ targetUrl: input.target, rootPath: options.dataDir });
 
+  const robots = options.robots ?? null;
+  const robotsStatus: RobotsStatus = robots ? await robots.check(input.target) : "unknown";
+  if (robotsStatus === "disallowed") {
+    throw new CrawlFailure("ROBOTS_DISALLOWED", `robots.txt disallows ${input.target} for this user agent. Choose another URL, or turn off the robots check only with the site's permission.`, null);
+  }
+
   progress(`Rendering ${input.target}…`);
 
-  return deps.withRenderedPage(input.target, async ({ page, pagePacket }) => {
+  return renderOrTimeout(input.target, () => deps.withRenderedPage(input.target, async ({ page, pagePacket }) => {
     const finalUrl = pagePacket.finalUrl || pagePacket.url;
+    let policy = buildPolicy(pagePacket, robotsStatus);
+    if (robots && finalUrl !== input.target && (await robots.check(finalUrl)) === "disallowed") {
+      policy = { ...policy, robots: "disallowed" };
+      throw new CrawlFailure(
+        "ROBOTS_DISALLOWED",
+        `${input.target} redirected to ${finalUrl}, which robots.txt disallows for this user agent. Choose another URL, or turn off the robots check only with the site's permission.`,
+        policy,
+      );
+    }
+    const statusFailure = failureForStatus(finalUrl, policy, pagePacket.response.retryAfter);
+    if (statusFailure) throw statusFailure;
+
     const urlPattern = inferUrlPattern(finalUrl);
     const reuseTemplate =
       input.source === "template-reuse"
@@ -136,7 +158,7 @@ export async function startCrawl(
         : Object.keys(userSchema).length === 0
           ? null
           : await deps.readTemplateForPattern(store, urlPattern, userSchema);
-    const base = () => ({ target: input.target, finalUrl, urlPattern, schema: userSchema });
+    const base = () => ({ target: input.target, finalUrl, urlPattern, schema: userSchema, policy });
 
     if (reuseTemplate) {
       progress(`Extracting with the saved template for ${urlPattern}…`);
@@ -212,7 +234,18 @@ export async function startCrawl(
       artifactFolder: folder.path,
       warnings,
     };
-  }, { userAgent: options.userAgent });
+  }, { userAgent: options.userAgent }));
+}
+
+async function renderOrTimeout<T>(url: string, render: () => Promise<T>): Promise<T> {
+  try {
+    return await render();
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError" && /page\.goto/.test(error.message)) {
+      throw new CrawlFailure("TIMEOUT", `${url} did not load in time (${error.message.split("\n")[0]}). The site may be slow or unreachable; try again later.`, null);
+    }
+    throw error;
+  }
 }
 
 export function resolveLlmTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {

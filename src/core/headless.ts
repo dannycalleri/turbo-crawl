@@ -7,10 +7,13 @@ import {
 } from "./llm-extractor/providers/resolveProvider.ts";
 import { discoverTemplateReuse, type ReuseDiscoveryOptions } from "./reuse-discovery.ts";
 import { ConfigError, resolveUserAgent } from "./config.ts";
+import { CrawlFailure } from "./policy/policy.ts";
+import { createRobotsChecker, type RobotsChecker } from "./policy/robots.ts";
 
 export const EXIT_OK = 0;
 export const EXIT_RUNTIME = 1;
 export const EXIT_USAGE = 2;
+export const EXIT_ROBOTS_DISALLOWED = 4;
 
 export class UsageError extends Error {
   constructor(message: string) {
@@ -27,6 +30,7 @@ export type HeadlessCrawlInput = {
   dataDir?: string;
   maxRepairs?: number;
   userAgent?: string;
+  ignoreRobots?: boolean;
 };
 
 type Writer = { write(chunk: string): unknown };
@@ -34,6 +38,7 @@ type Writer = { write(chunk: string): unknown };
 export type HeadlessDependencies = {
   discover(target: string, dataDir?: string): Promise<ReuseDiscoveryOptions>;
   resolveUserAgent(option: string | undefined): Promise<string>;
+  createRobotsChecker(userAgent: string): RobotsChecker;
   resolveProvider(input: { provider?: string; model?: string }): ResolvedProvider;
   createRunner(options: CrawlOptions): CrawlRunner;
   stdout: Writer;
@@ -43,6 +48,7 @@ export type HeadlessDependencies = {
 export const defaultHeadlessDependencies: HeadlessDependencies = {
   discover: discoverTemplateReuse,
   resolveUserAgent: option => resolveUserAgent(option),
+  createRobotsChecker: userAgent => createRobotsChecker({ userAgent }),
   resolveProvider,
   createRunner: options => createCrawlRunner(options),
   stdout: process.stdout,
@@ -101,6 +107,7 @@ function sameFieldNames(left: UserSchema, right: UserSchema): boolean {
 
 export function formatOutcome(outcome: CrawlOutcome): unknown {
   return {
+    ok: true,
     url: outcome.target,
     finalUrl: outcome.finalUrl,
     urlPattern: outcome.urlPattern,
@@ -121,6 +128,7 @@ export function formatOutcome(outcome: CrawlOutcome): unknown {
         },
       ]),
     ),
+    policy: outcome.policy,
     warnings: outcome.warnings,
     templateId: outcome.templateId,
     templatePath: outcome.templatePath,
@@ -143,6 +151,11 @@ export async function runHeadlessCrawl(
   deps: HeadlessDependencies = defaultHeadlessDependencies,
 ): Promise<number> {
   const log = (message: string) => deps.stderr.write(`${message}\n`);
+  const fail = (exitCode: number, code: string, message: string, extra: Record<string, unknown> = {}) => {
+    log(`error: ${message}`);
+    deps.stdout.write(`${JSON.stringify({ ok: false, url: input.target, code, message, ...extra }, null, 2)}\n`);
+    return exitCode;
+  };
 
   try {
     const target = normalizeTarget(input.target);
@@ -155,10 +168,13 @@ export async function runHeadlessCrawl(
     const discovery = await deps.discover(target, input.dataDir);
 
     if (discovery.ambiguousTemplates.length > 1) {
-      log(`More than one saved template matches this URL pattern; remove all but one:\n${discovery.ambiguousTemplates
-        .map(candidate => `  ${candidate.path}`)
-        .join("\n")}`);
-      return EXIT_RUNTIME;
+      const paths = discovery.ambiguousTemplates.map(candidate => candidate.path);
+      return fail(
+        EXIT_RUNTIME,
+        "AMBIGUOUS_TEMPLATE",
+        `More than one saved template matches this URL pattern; remove all but one:\n${paths.map(file => `  ${file}`).join("\n")}`,
+        { templatePaths: paths },
+      );
     }
 
     for (const warning of discovery.warnings) {
@@ -185,6 +201,7 @@ export async function runHeadlessCrawl(
       model: resolved?.model ?? null,
       maxRepairs: input.maxRepairs,
       userAgent,
+      robots: input.ignoreRobots ? null : deps.createRobotsChecker(userAgent),
       dataDir: input.dataDir,
       onProgress: log,
     });
@@ -205,11 +222,16 @@ export async function runHeadlessCrawl(
       error instanceof ConfigError ||
       (error instanceof ProviderSelectionError && error.usageError)
     ) {
-      log(`error: ${error.message}`);
-      return EXIT_USAGE;
+      return fail(EXIT_USAGE, "INVALID_ARGUMENTS", error.message);
     }
 
-    log(`error: ${describeRuntimeError(error)}`);
-    return EXIT_RUNTIME;
+    if (error instanceof CrawlFailure) {
+      return fail(error.code === "ROBOTS_DISALLOWED" ? EXIT_ROBOTS_DISALLOWED : EXIT_RUNTIME, error.code, error.message, {
+        policy: error.policy,
+        ...(error.code === "BLOCKED" ? { retryAfterSeconds: error.retryAfterSeconds } : {}),
+      });
+    }
+
+    return fail(EXIT_RUNTIME, "RUNTIME_ERROR", describeRuntimeError(error));
   }
 }

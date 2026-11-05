@@ -3,6 +3,7 @@ import type { CrawlOptions, CrawlOutcome, CrawlStartInput } from "../src/core/cr
 import {
   EXIT_OK,
   EXIT_RUNTIME,
+  EXIT_ROBOTS_DISALLOWED,
   EXIT_USAGE,
   normalizeTarget,
   parseFieldsOption,
@@ -17,6 +18,7 @@ import {
 } from "../src/core/llm-extractor/providers/resolveProvider.ts";
 import type { ReuseDiscoveryOptions } from "../src/core/reuse-discovery.ts";
 import { ConfigError } from "../src/core/config.ts";
+import { CrawlFailure } from "../src/core/policy/policy.ts";
 import type { ExtractionTemplate } from "../src/core/templating/types.ts";
 
 function usageError(run: () => unknown): UsageError {
@@ -79,6 +81,7 @@ function outcome(input: CrawlStartInput): CrawlOutcome {
   return {
     target: input.target,
     finalUrl: input.target,
+    policy: { robots: "allowed", tdmReservation: null, tdmPolicyUrl: null, xRobotsTag: null, metaRobots: null, httpStatus: 200 },
     urlPattern: "/products/:slug",
     path: input.source === "template-reuse" ? "template-reuse" : "authored",
     schema: { title: "string" },
@@ -121,11 +124,16 @@ function harness(options: {
   let stderr = "";
   const started: CrawlStartInput[] = [];
   const runnerOptions: CrawlOptions[] = [];
+  const robotsCheckers: string[] = [];
   let resolveCalls = 0;
 
   const deps: HeadlessDependencies = {
     discover: async () => options.discovery ?? discovery(),
     resolveUserAgent: options.resolveUserAgent ?? (async option => option ?? "ConfigBot/1.0"),
+    createRobotsChecker: userAgent => {
+      robotsCheckers.push(userAgent);
+      return { check: async () => "allowed" };
+    },
     resolveProvider: () => {
       resolveCalls += 1;
       return (
@@ -153,6 +161,7 @@ function harness(options: {
     deps,
     started,
     runnerOptions,
+    robotsCheckers,
     get stdout() {
       return stdout;
     },
@@ -187,6 +196,11 @@ describe("runHeadlessCrawl", () => {
     });
 
     expect(await runHeadlessCrawl({ target }, h.deps)).toBe(EXIT_RUNTIME);
+    expect(JSON.parse(h.stdout)).toMatchObject({
+      ok: false,
+      code: "AMBIGUOUS_TEMPLATE",
+      templatePaths: ["data/example.com/templates/a.json", "data/example.com/templates/b.json"],
+    });
     expect(h.stderr).toContain("data/example.com/templates/a.json");
     expect(h.stderr).toContain("data/example.com/templates/b.json");
     expect(h.started).toEqual([]);
@@ -218,6 +232,53 @@ describe("runHeadlessCrawl", () => {
     expect(await runHeadlessCrawl({ target, fields: "title:string" }, h.deps)).toBe(EXIT_OK);
     expect(await runHeadlessCrawl({ target, fields: "title:string", userAgent: "CliBot/1.0" }, h.deps)).toBe(EXIT_OK);
     expect(h.runnerOptions.map(options => options.userAgent)).toEqual(["ConfigBot/1.0", "CliBot/1.0"]);
+  });
+
+  it("checks robots.txt with the resolved user agent unless --ignore-robots is given", async () => {
+    const h = harness();
+
+    await runHeadlessCrawl({ target, fields: "title:string" }, h.deps);
+    await runHeadlessCrawl({ target, fields: "title:string", ignoreRobots: true }, h.deps);
+
+    expect(h.robotsCheckers).toEqual(["ConfigBot/1.0"]);
+    expect(h.runnerOptions[0]?.robots).not.toBeNull();
+    expect(h.runnerOptions[1]?.robots).toBeNull();
+  });
+
+  it("exits 4 with a JSON error when robots.txt disallows the URL", async () => {
+    const h = harness({
+      startCrawl: async () => {
+        throw new CrawlFailure("ROBOTS_DISALLOWED", "robots.txt disallows it.", null);
+      },
+    });
+
+    expect(await runHeadlessCrawl({ target, fields: "title:string" }, h.deps)).toBe(EXIT_ROBOTS_DISALLOWED);
+    expect(JSON.parse(h.stdout)).toEqual({
+      ok: false,
+      url: target,
+      code: "ROBOTS_DISALLOWED",
+      message: "robots.txt disallows it.",
+      policy: null,
+    });
+  });
+
+  it("exits 1 with the Retry-After delay when the site blocks the request", async () => {
+    const policy = { robots: "allowed", tdmReservation: null, tdmPolicyUrl: null, xRobotsTag: null, metaRobots: null, httpStatus: 429 } as const;
+    const h = harness({
+      startCrawl: async () => {
+        throw new CrawlFailure("BLOCKED", "answered 429", policy, 120);
+      },
+    });
+
+    expect(await runHeadlessCrawl({ target, fields: "title:string" }, h.deps)).toBe(EXIT_RUNTIME);
+    expect(JSON.parse(h.stdout)).toMatchObject({ ok: false, code: "BLOCKED", retryAfterSeconds: 120, policy });
+  });
+
+  it("prints invalid arguments as a JSON error too", async () => {
+    const h = harness();
+
+    expect(await runHeadlessCrawl({ target, fields: "price:money" }, h.deps)).toBe(EXIT_USAGE);
+    expect(JSON.parse(h.stdout)).toMatchObject({ ok: false, code: "INVALID_ARGUMENTS" });
   });
 
   it("exits 2 naming the file when a config file is invalid", async () => {
