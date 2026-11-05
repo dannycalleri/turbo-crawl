@@ -1,4 +1,12 @@
-import { createCrawlRunner, type CrawlOptions, type CrawlOutcome, type CrawlRunner } from "./crawl-run.ts";
+import { createBrowserSession } from "./crawler.ts";
+import {
+  createCrawlRunner,
+  defaultStartCrawlDependencies,
+  type CrawlOptions,
+  type CrawlOutcome,
+  type CrawlRunner,
+} from "./crawl-run.ts";
+import { crawlSite, DEFAULT_SITE_CRAWL_LIMITS, type SiteCrawlLimits } from "./site-crawl.ts";
 import { FIELD_TYPES, isFieldType, type UserSchema } from "./llm-extractor/types.ts";
 import {
   ProviderSelectionError,
@@ -34,6 +42,10 @@ export type HeadlessCrawlInput = {
   author?: boolean;
   artifacts?: boolean;
   require?: string;
+  follow?: boolean;
+  maxPages?: number;
+  maxItems?: number;
+  delayMs?: number;
 };
 
 type Writer = { write(chunk: string): unknown };
@@ -42,7 +54,7 @@ export type HeadlessDependencies = {
   resolveUserAgent(option: string | undefined): Promise<string>;
   createRobotsChecker(userAgent: string): RobotsChecker;
   resolveProvider(input: { provider?: string; model?: string }): ResolvedProvider;
-  createRunner(options: CrawlOptions): CrawlRunner;
+  createRunner(options: CrawlOptions): CrawlRunner & { close?(): Promise<void> };
   stdout: Writer;
   stderr: Writer;
 };
@@ -51,7 +63,14 @@ export const defaultHeadlessDependencies: HeadlessDependencies = {
   resolveUserAgent: option => resolveUserAgent(option),
   createRobotsChecker: userAgent => createRobotsChecker({ userAgent }),
   resolveProvider,
-  createRunner: options => createCrawlRunner(options),
+  createRunner: options => {
+    const session = createBrowserSession({ userAgent: options.userAgent });
+    const runner = createCrawlRunner(options, {
+      ...defaultStartCrawlDependencies,
+      withRenderedPage: (url, handler) => session.withRenderedPage(url, handler),
+    });
+    return { ...runner, close: () => session.close() };
+  },
   stdout: process.stdout,
   stderr: process.stderr,
 };
@@ -169,10 +188,28 @@ export function formatOutcome(outcome: CrawlOutcome): unknown {
   };
 }
 
+export function parseSiteCrawlLimits(input: Pick<HeadlessCrawlInput, "maxPages" | "maxItems" | "delayMs">): SiteCrawlLimits {
+  const limit = (name: string, value: number | undefined, fallback: number, min: number) => {
+    if (value === undefined) return fallback;
+    if (!Number.isInteger(value) || value < min) throw new UsageError(`--${name} must be a whole number of ${min} or more.`);
+    return value;
+  };
+  return {
+    maxPages: limit("max-pages", input.maxPages, DEFAULT_SITE_CRAWL_LIMITS.maxPages, 1),
+    maxItems: limit("max-items", input.maxItems, DEFAULT_SITE_CRAWL_LIMITS.maxItems, 1),
+    delayMs: limit("delay-ms", input.delayMs, DEFAULT_SITE_CRAWL_LIMITS.delayMs, 0),
+  };
+}
+
+function isMissingBrowserError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /Executable doesn't exist|playwright install|browserType\.launch/i.test(message);
+}
+
 export function describeRuntimeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
 
-  if (/Executable doesn't exist|playwright install|browserType\.launch/i.test(message)) {
+  if (isMissingBrowserError(error)) {
     return "Chromium for Playwright is not installed. Run `npx playwright install chromium` and try again.";
   }
 
@@ -198,13 +235,16 @@ export async function runHeadlessCrawl(
     }
 
     const require = input.require === undefined ? undefined : parseRequireOption(input.require, fields);
+    const limits = parseSiteCrawlLimits(input);
     const userAgent = await deps.resolveUserAgent(input.userAgent);
 
     let resolved: ResolvedProvider | null = null;
     const runner = deps.createRunner({
       provider: () => {
-        resolved = deps.resolveProvider({ provider: input.provider, model: input.model });
-        log(`Using ${resolved.name}${resolved.model ? ` (${resolved.model})` : ""} to write the template.`);
+        if (!resolved) {
+          resolved = deps.resolveProvider({ provider: input.provider, model: input.model });
+          log(`Using ${resolved.name}${resolved.model ? ` (${resolved.model})` : ""} to write the template.`);
+        }
         return resolved.create();
       },
       // Read by startCrawl only after it has asked for the provider.
@@ -220,14 +260,47 @@ export async function runHeadlessCrawl(
       onProgress: log,
     });
 
-    const outcome = await runner.startCrawl({ target, schema: fields ?? {}, require });
+    try {
+      const outcome = await runner.startCrawl({ target, schema: fields ?? {}, require });
 
-    for (const warning of outcome.warnings) {
-      log(`warning: ${warning}`);
+      for (const warning of outcome.warnings) {
+        log(`warning: ${warning}`);
+      }
+
+      if (outcome.kind === "item" || input.follow === false) {
+        deps.stdout.write(`${JSON.stringify(formatOutcome(outcome), null, 2)}\n`);
+        return EXIT_OK;
+      }
+
+      log(`${target} is a listing page: extracting its items and following its pagination.`);
+      const summary = await crawlSite({
+        start: outcome,
+        schema: fields ?? {},
+        require,
+        limits,
+        runner,
+        isFatal: isMissingBrowserError,
+        onEvent: event => {
+          if (event.kind === "listing-failed") {
+            log(`warning: skipped the listing page ${event.url}: ${event.error.message}`);
+            return;
+          }
+          if (event.kind === "item") {
+            for (const warning of event.outcome.warnings) log(`warning: ${warning}`);
+          } else {
+            log(`error: ${event.error.message}`);
+          }
+          const line = event.kind === "item"
+            ? formatOutcome(event.outcome)
+            : { ok: false, url: event.url, code: event.error.code, message: event.error.message, ...event.error.details };
+          deps.stdout.write(`${JSON.stringify(line)}\n`);
+        },
+      });
+      log(`Crawled ${summary.listingPages} listing page(s): ${summary.extracted} item(s) extracted, ${summary.failed} failed.`);
+      return summary.extracted > 0 ? EXIT_OK : EXIT_RUNTIME;
+    } finally {
+      await runner.close?.();
     }
-
-    deps.stdout.write(`${JSON.stringify(formatOutcome(outcome), null, 2)}\n`);
-    return EXIT_OK;
   } catch (error) {
     if (
       error instanceof UsageError ||

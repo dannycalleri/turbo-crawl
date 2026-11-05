@@ -451,6 +451,25 @@ describe("listing pages", () => {
     expect(notListing.authorCalls).toHaveLength(0);
   });
 
+  it("uses only the given listing template, saves a new pattern to it, and asks no agent when it does not fit", async () => {
+    const harness = await createHarness({ linkGroups: [productGroup], listingLinks: () => links });
+    const parent = await saveListingTemplate(harness.store, { ...listingTemplate, id: "listing_a_parent", urlPatterns: ["/category/:slug"], createdAt: "2026-10-01T00:00:00.000Z" });
+    await saveListingTemplate(harness.store, { ...listingTemplate, id: "listing_b_newer", urlPatterns: ["/search"], createdAt: "2026-11-01T00:00:00.000Z" });
+
+    const outcome = await startCrawl({ ...fieldsInput({}), expect: "listing", listingTemplatePath: parent.path }, harness.options, harness.deps);
+
+    expect(outcome).toMatchObject({ kind: "listing", templateFit: { templateId: "listing_a_parent", matchedPattern: false } });
+    expect((await readJsonFile<ListingTemplate>(parent.path)).urlPatterns).toEqual(["/category/:slug", "/final"]);
+
+    const missing = await createHarness({ linkGroups: [productGroup], listingLinks: () => null });
+    const other = await saveListingTemplate(missing.store, listingTemplate);
+    const failure = await startCrawl({ ...fieldsInput({}), expect: "listing", listingTemplatePath: other.path }, missing.options, missing.deps).catch(error => error);
+
+    expect(failure).toMatchObject({ code: "TEMPLATE_MISSING" });
+    expect(missing.classifyCalls).toHaveLength(0);
+    expect(missing.providerResolutions).toBe(0);
+  });
+
   it("goes on to the field templates when no saved listing template fits", async () => {
     const harness = await createHarness({ listingLinks: () => null });
     await saveListingTemplate(harness.store, listingTemplate);

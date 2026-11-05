@@ -116,6 +116,7 @@ function harness(options: {
   const runnerOptions: CrawlOptions[] = [];
   const robotsCheckers: string[] = [];
   let resolveCalls = 0;
+  let closes = 0;
 
   const deps: HeadlessDependencies = {
     resolveUserAgent: options.resolveUserAgent ?? (async option => option ?? "ConfigBot/1.0"),
@@ -144,6 +145,9 @@ function harness(options: {
           }
           return options.startCrawl ? options.startCrawl(input) : outcome(input);
         },
+        close: async () => {
+          closes += 1;
+        },
       };
     },
     stdout: { write: chunk => (stdout += chunk) },
@@ -163,6 +167,9 @@ function harness(options: {
     },
     get resolveCalls() {
       return resolveCalls;
+    },
+    get closes() {
+      return closes;
     },
   };
 }
@@ -346,6 +353,94 @@ describe("runHeadlessCrawl", () => {
           selector: { kind: "css", selector: "h1", attribute: "textContent" },
         },
       },
+    });
+  });
+
+  describe("following a listing", () => {
+    const listing = (url: string): CrawlOutcome => ({
+      kind: "listing",
+      target: url,
+      finalUrl: url,
+      canonicalUrl: null,
+      fetchedAt: "2026-11-05T00:00:00.000Z",
+      urlPattern: "/category/clocks",
+      policy: { robots: "allowed", tdmReservation: null, tdmPolicyUrl: null, xRobotsTag: null, metaRobots: null, httpStatus: 200 },
+      items: ["clock-1", "clock-2"].map(slug => ({ url: `https://example.com/products/${slug}`, text: slug, cssPath: "a" })),
+      paginationUrls: [],
+      linkGroups: [],
+      llmUsed: true,
+      provider: "claude",
+      templateFit: { templateId: "listing_x", templatePath: "listings/x.json", matchedPattern: true },
+      artifactFolder: null,
+      warnings: [],
+    });
+    const crawlWith = (failing: string[], authors = false) =>
+      harness({
+        authors,
+        startCrawl: async input => {
+          if (input.target.includes("/category/")) return listing(input.target);
+          if (failing.some(slug => input.target.endsWith(slug))) throw new CrawlFailure("HTTP_ERROR", `${input.target} answered 404.`, null);
+          return outcome(input);
+        },
+      });
+    const categoryUrl = "https://example.com/category/clocks";
+
+    it("prints one JSON line per item and a summary, and exits 0 when some items succeed", async () => {
+      const h = crawlWith(["clock-2"]);
+
+      expect(await runHeadlessCrawl({ target: categoryUrl, delayMs: 0 }, h.deps)).toBe(EXIT_OK);
+
+      const lines = h.stdout.trim().split("\n").map(line => JSON.parse(line));
+      expect(lines).toMatchObject([
+        { ok: true, kind: "item", url: "https://example.com/products/clock-1" },
+        { ok: false, url: "https://example.com/products/clock-2", code: "HTTP_ERROR" },
+      ]);
+      expect(h.started.map(input => input.expect)).toEqual([undefined, "detail", "detail"]);
+      expect(h.stderr).toContain("Crawled 1 listing page(s): 1 item(s) extracted, 1 failed.");
+    });
+
+    it("exits 0 with every item extracted, resolves the provider once, and closes the browser", async () => {
+      const h = crawlWith([], true);
+
+      expect(await runHeadlessCrawl({ target: categoryUrl, delayMs: 0 }, h.deps)).toBe(EXIT_OK);
+      expect(h.stdout.trim().split("\n")).toHaveLength(2);
+      expect(h.stderr).toContain("2 item(s) extracted, 0 failed.");
+      expect(h.resolveCalls).toBe(1);
+      expect(h.stderr.match(/Using claude/g)).toHaveLength(1);
+      expect(h.closes).toBe(1);
+    });
+
+    it("closes the browser when the crawl throws", async () => {
+      const h = harness({
+        startCrawl: async () => {
+          throw new Error("browserType.launch: Executable doesn't exist");
+        },
+      });
+
+      expect(await runHeadlessCrawl({ target: categoryUrl }, h.deps)).toBe(EXIT_RUNTIME);
+      expect(h.closes).toBe(1);
+    });
+
+    it("exits 1 when every item fails", async () => {
+      const h = crawlWith(["clock-1", "clock-2"]);
+
+      expect(await runHeadlessCrawl({ target: categoryUrl, delayMs: 0 }, h.deps)).toBe(EXIT_RUNTIME);
+    });
+
+    it("prints only the listing with --no-follow", async () => {
+      const h = crawlWith([]);
+
+      expect(await runHeadlessCrawl({ target: categoryUrl, follow: false }, h.deps)).toBe(EXIT_OK);
+      expect(JSON.parse(h.stdout)).toMatchObject({ kind: "listing", itemUrls: ["https://example.com/products/clock-1", "https://example.com/products/clock-2"] });
+      expect(h.started).toHaveLength(1);
+    });
+
+    it("exits 2 on a limit that is not a whole number in range", async () => {
+      for (const input of [{ maxPages: 0 }, { maxItems: 1.5 }, { delayMs: -1 }]) {
+        const h = crawlWith([]);
+        expect(await runHeadlessCrawl({ target: categoryUrl, ...input }, h.deps)).toBe(EXIT_USAGE);
+        expect(h.started).toHaveLength(0);
+      }
     });
   });
 });

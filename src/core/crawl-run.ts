@@ -48,6 +48,8 @@ export type CrawlStartInput = {
   require?: string[];
   /** The caller knows the page kind: "detail" never treats it as a listing, "listing" uses only listing templates. */
   expect?: "detail" | "listing";
+  /** Only this saved listing template may read the page, and no agent is asked. */
+  listingTemplatePath?: string;
 };
 
 export type TemplateFit = {
@@ -222,7 +224,10 @@ export async function startCrawl(
         : deps.listTemplatesForDomain(store, { fields: fieldsGiven ? userSchema : undefined }),
     ]);
     const storeWarnings = [...savedListings.warnings, ...saved.warnings].map(warning => warning.message);
-    const listingFit = await findListingFit(page, savedListings.candidates, urlPattern, deps);
+    const listingCandidates = input.listingTemplatePath
+      ? savedListings.candidates.filter(candidate => candidate.path === input.listingTemplatePath)
+      : savedListings.candidates;
+    const listingFit = await findListingFit(page, listingCandidates, urlPattern, deps);
     const listingOutcome = async ({ candidate, links, matchedPattern }: ListingFit): Promise<ListingOutcome> => {
       if (!matchedPattern) await deps.addPatternToTemplate(candidate.path, urlPattern);
       progress(`Read the links with the saved listing template ${candidate.path}.`);
@@ -299,6 +304,14 @@ export async function startCrawl(
         artifactFolder: await saveArtifacts({ pagePacket, result }),
         warnings,
       };
+    }
+
+    if (input.listingTemplatePath) {
+      throw new CrawlFailure(
+        "TEMPLATE_MISSING",
+        `The listing template ${input.listingTemplatePath} does not fit ${finalUrl}, so its links were not read. The page may use another layout.`,
+        policy,
+      );
     }
 
     if (options.authoring === false) {
