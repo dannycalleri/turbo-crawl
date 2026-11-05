@@ -23,12 +23,14 @@ import {
   type PageClassification,
 } from "./template-author/classifyPage.ts";
 import { summarizeLinkGroups, type LinkGroup } from "./extraction/links.ts";
+import { readListingLinks, type ListingLinks } from "./template-author/validateListingSelectors.ts";
 import type { ListingTemplate } from "./templating/types.ts";
 import {
   addPatternToTemplate,
   createDomainStore,
   listTemplatesForDomain,
   savePageArtifacts,
+  listListingTemplates,
   saveListingTemplate,
   saveTemplate,
   type DomainStore,
@@ -130,6 +132,8 @@ export type StartCrawlDependencies = {
   summarizeLinkGroups(page: RenderedPageContext["page"]): Promise<LinkGroup[]>;
   classifyPage(input: ClassifyPageInput): Promise<PageClassification>;
   saveListingTemplate(store: DomainStore, template: ListingTemplate): Promise<ListingTemplateArtifact>;
+  listListingTemplates(store: DomainStore): Promise<ReuseDiscoveryResult<ListingTemplateArtifact>>;
+  readListingLinks(page: RenderedPageContext["page"], template: ListingTemplate): Promise<ListingLinks | null>;
   extractWithTemplate(input: {
     page: RenderedPageContext["page"];
     pagePacket: PagePacket;
@@ -150,6 +154,8 @@ export const defaultStartCrawlDependencies: StartCrawlDependencies = {
   summarizeLinkGroups,
   classifyPage,
   saveListingTemplate,
+  listListingTemplates,
+  readListingLinks,
   extractWithTemplate,
 };
 
@@ -195,15 +201,42 @@ export async function startCrawl(
     if (statusFailure) throw statusFailure;
 
     const urlPattern = inferUrlPattern(finalUrl);
+    const saveArtifacts = (artifacts: PageArtifacts) =>
+      options.writeArtifacts === false ? Promise.resolve(null) : deps.savePageArtifacts(store, artifacts).then(folder => folder.path);
+    const savedListings = await deps.listListingTemplates(store);
     const saved = await deps.listTemplatesForDomain(store, { fields: fieldsGiven ? userSchema : undefined });
-    const storeWarnings = saved.warnings.map(warning => warning.message);
+    const storeWarnings = [...savedListings.warnings, ...saved.warnings].map(warning => warning.message);
+    const listingFit = await findListingFit(page, savedListings.candidates, urlPattern, deps);
+    const listingOutcome = async ({ candidate, links, matchedPattern }: ListingFit): Promise<ListingOutcome> => {
+      if (!matchedPattern) await deps.addPatternToTemplate(candidate.path, urlPattern);
+      progress(`Read the links with the saved listing template ${candidate.path}.`);
+      return {
+        kind: "listing",
+        target: input.target,
+        finalUrl,
+        urlPattern,
+        ...links,
+        llmUsed: false,
+        provider: null,
+        templateFit: { templateId: candidate.template.id, templatePath: candidate.path, matchedPattern },
+        artifactFolder: await saveArtifacts({ pagePacket }),
+        policy,
+        warnings: storeWarnings,
+      };
+    };
+
+    // A related-products block can fit a listing template, so on a URL pattern that
+    // a field template knows, a listing fit on a new pattern waits for the field templates.
+    const fieldKnowsPattern = saved.candidates.some(candidate => candidate.template.urlPatterns.includes(urlPattern));
+    if (listingFit && (listingFit.matchedPattern || !fieldKnowsPattern)) {
+      return listingOutcome(listingFit);
+    }
+
     const trials: TemplateTrial[] = [];
     for (const candidate of saved.candidates) {
       trials.push({ candidate, result: await deps.extractWithTemplate({ page, pagePacket, template: candidate.template }) });
     }
     const decision = decideTemplate(trials, { urlPattern, require: input.require, fieldsGiven });
-    const saveArtifacts = (artifacts: PageArtifacts) =>
-      options.writeArtifacts === false ? Promise.resolve(null) : deps.savePageArtifacts(store, artifacts).then(folder => folder.path);
 
     if (decision.kind === "ambiguous") {
       const paths = decision.trials.map(trial => trial.candidate.path);
@@ -214,6 +247,10 @@ export async function startCrawl(
         null,
         paths,
       );
+    }
+
+    if (listingFit && decision.kind === "none") {
+      return listingOutcome(listingFit);
     }
 
     if (decision.kind === "fit" || decision.kind === "stale") {
@@ -372,6 +409,24 @@ export async function startCrawl(
       warnings,
     };
   }, { userAgent: options.userAgent }));
+}
+
+type ListingFit = { candidate: ListingTemplateArtifact; links: ListingLinks; matchedPattern: boolean };
+
+async function findListingFit(
+  page: RenderedPageContext["page"],
+  candidates: ListingTemplateArtifact[],
+  urlPattern: string,
+  deps: StartCrawlDependencies,
+): Promise<ListingFit | null> {
+  const fits: ListingFit[] = [];
+  for (const candidate of candidates) {
+    const links = await deps.readListingLinks(page, candidate.template);
+    if (links) fits.push({ candidate, links, matchedPattern: candidate.template.urlPatterns.includes(urlPattern) });
+  }
+  return fits.sort((left, right) =>
+    Number(right.matchedPattern) - Number(left.matchedPattern) ||
+    right.candidate.template.createdAt.localeCompare(left.candidate.template.createdAt))[0] ?? null;
 }
 
 async function renderOrTimeout<T>(url: string, render: () => Promise<T>): Promise<T> {

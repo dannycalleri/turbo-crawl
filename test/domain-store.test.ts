@@ -11,7 +11,9 @@ import {
   listResults,
   normalizeDomain,
   addPatternToTemplate,
+  listListingTemplates,
   listTemplatesForDomain,
+  saveListingTemplate,
   readJsonFile,
   savePageArtifacts,
   saveTemplate,
@@ -20,7 +22,7 @@ import {
 import type { CompactPagePacket } from "../src/core/compactPagePacket.ts";
 import type { LLMExtractionResult } from "../src/core/llm-extractor/types.ts";
 import type { TemplateExtractionResult } from "../src/core/template-extractor/types.ts";
-import type { ExtractionTemplate } from "../src/core/templating/types.ts";
+import type { ExtractionTemplate, ListingTemplate } from "../src/core/templating/types.ts";
 import type { PagePacket } from "../src/core/types.ts";
 
 const tempDirs: string[] = [];
@@ -287,6 +289,32 @@ describe("domain store foundational helpers", () => {
 
     expect(result.warnings).toEqual([]);
     expect(result.candidates.map(candidate => candidate.template)).toEqual([createTemplate()]);
+  });
+
+  it("lists saved listing templates and skips invalid ones and other domains with a warning", async () => {
+    const rootPath = await createTempDir();
+    const store = createDomainStore({ targetUrl: "https://marketplace.com/category/clocks", rootPath });
+    const listing: ListingTemplate = {
+      id: "listing_0123456789abcdef",
+      kind: "listing",
+      domain: "marketplace.com",
+      urlPatterns: ["/category/:slug"],
+      itemLinks: ["ul.grid a"],
+      nextPage: [],
+      pageLinks: [],
+      itemUrlPattern: "/products/:slug",
+      createdFromUrl: "https://marketplace.com/category/clocks",
+      createdAt: "2026-11-05T00:00:00.000Z",
+    };
+    const saved = await saveListingTemplate(store, listing);
+    await writeJsonFile(path.join(store.listingsPath, "no-items.json"), { ...listing, itemLinks: [] });
+    await writeJsonFile(path.join(store.listingsPath, "other.json"), { ...listing, domain: "other.com" });
+
+    const result = await listListingTemplates(store);
+
+    expect(saved.path).toBe(path.join(store.listingsPath, "0123456789abcdef.json"));
+    expect(result.candidates).toEqual([saved]);
+    expect(result.warnings.map(warning => path.basename(warning.path)).sort()).toEqual(["no-items.json", "other.json"]);
   });
 
   it("removes an older file with the same template id when it saves a template", async () => {
