@@ -69,7 +69,7 @@ export async function readListingLinks(page: Page, template: ListingTemplate): P
 async function firstPassing(page: Page, role: LinkRole, selectors: string[]): Promise<LinkSelectorValidation | null> {
     for (const selector of selectors) {
         const result = await validateLinkSelector(page, role, selector);
-        if (result.passed) return result;
+        if (result.passed && result.links.length > 0) return result;
     }
     return null;
 }
@@ -90,6 +90,14 @@ async function validateLinkSelector(page: Page, role: LinkRole, selector: string
         return fit.fits
             ? { selector, passed: true, links: keepLinks(links, fit.itemUrls), reason: "ok", itemUrlPattern: fit.itemUrlPattern }
             : { selector, passed: false, links, reason: fit.reason };
+    }
+
+    if (links.length === 0) {
+        const matched = await page.locator(selector).count();
+        // The last page of a list, or a one-page list, has no next or numbered page links.
+        return matched === 0
+            ? { selector, passed: true, links: [], reason: "matches nothing on this page" }
+            : { selector, passed: false, links: [], reason: `matches ${matched} element(s), but none is a link with an href` };
     }
 
     const pageUrls = sameHostLinks(urls, pageUrl);

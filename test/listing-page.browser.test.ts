@@ -4,6 +4,7 @@ import { readDomLinks, summarizeLinkGroups } from "../src/core/extraction/links.
 import type { LLMProvider, StructuredLLMRequest } from "../src/core/llm-extractor/providers/LLMProvider.ts";
 import { installPageContextHelpers } from "../src/core/pageContext/runtime.ts";
 import { classifyPage } from "../src/core/template-author/classifyPage.ts";
+import { readListingLinks } from "../src/core/template-author/validateListingSelectors.ts";
 import type { PagePacket } from "../src/core/types.ts";
 
 const pageUrl = "https://shop.test/category/clocks";
@@ -91,5 +92,61 @@ describe("listing links on a real browser", () => {
       paginationUrls: ["https://shop.test/category/clocks?page=2"],
     });
     expect(result.kind === "listing" && result.items).toHaveLength(24);
+  });
+
+  it("keeps a pagination selector that matches no link on this page, and reads with the first one that finds links", async () => {
+    const { provider, requests } = fakeProvider([
+      { pageKind: "listing", itemLinks: ["ul.grid a.card-link"], nextPage: ["li.next a"], pageLinks: [] },
+    ]);
+
+    const result = await classifyPage({
+      page,
+      pagePacket: {
+        url: pageUrl,
+        finalUrl: pageUrl,
+        title: "Clocks",
+        metadata: { canonicalUrl: null, description: null, robots: null, openGraph: {}, twitter: {}, other: {} },
+        jsonLd: [],
+        tables: [],
+      } as unknown as PagePacket,
+      skeleton: "",
+      groups: await summarizeLinkGroups(page),
+      provider,
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(result).toMatchObject({ kind: "listing", template: { nextPage: ["li.next a"] }, paginationUrls: [] });
+
+    const links = await readListingLinks(page, {
+      ...(result as Extract<typeof result, { kind: "listing" }>).template,
+      nextPage: ["li.next a", "a[rel=next]"],
+    });
+    expect(links?.paginationUrls).toEqual(["https://shop.test/category/clocks?page=2"]);
+  });
+
+  it("repairs a pagination selector that matches elements without an href", async () => {
+    const { provider, requests } = fakeProvider([
+      { pageKind: "listing", itemLinks: ["ul.grid a.card-link"], nextPage: ["ul.grid li"], pageLinks: [] },
+      { pageKind: "listing", itemLinks: [], nextPage: ["a[rel=next]"], pageLinks: [] },
+    ]);
+
+    const result = await classifyPage({
+      page,
+      pagePacket: {
+        url: pageUrl,
+        finalUrl: pageUrl,
+        title: "Clocks",
+        metadata: { canonicalUrl: null, description: null, robots: null, openGraph: {}, twitter: {}, other: {} },
+        jsonLd: [],
+        tables: [],
+      } as unknown as PagePacket,
+      skeleton: "",
+      groups: await summarizeLinkGroups(page),
+      provider,
+    });
+
+    expect(requests).toHaveLength(2);
+    expect(requests[1]!.messages.at(-1)!.content).toContain("none is a link with an href");
+    expect(result).toMatchObject({ kind: "listing", template: { nextPage: ["a[rel=next]"] } });
   });
 });
