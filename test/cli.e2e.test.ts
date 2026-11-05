@@ -24,6 +24,7 @@ function productPage(title: string, price: string): string {
 }
 
 const pages: Record<string, string> = {
+  "/robots.txt": "User-agent: *\nDisallow: /private/\n",
   "/products/clock-1": productPage("Clock", "€49.00"),
   "/products/watch-2": productPage("Watch", "€120.50"),
 };
@@ -66,6 +67,7 @@ describe("turbo-crawl CLI end to end", () => {
   let server: ReturnType<typeof Bun.serve> | null = null;
   let workDir = "";
   const userAgents: string[] = [];
+  const requestedPaths: string[] = [];
   let counterFile = "";
   let env: NodeJS.ProcessEnv = {};
 
@@ -81,6 +83,7 @@ describe("turbo-crawl CLI end to end", () => {
       hostname: "127.0.0.1",
       fetch(request) {
         userAgents.push(request.headers.get("user-agent") ?? "");
+        requestedPaths.push(new URL(request.url).pathname);
         const html = pages[new URL(request.url).pathname];
         return html
           ? new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } })
@@ -163,5 +166,24 @@ describe("turbo-crawl CLI end to end", () => {
       expect(new Set(userAgents)).toEqual(new Set(["E2EBot/1.0"]));
     },
     60_000,
+  );
+
+  it(
+    "exits 4 with a JSON error and does not render a page that robots.txt disallows",
+    async () => {
+      if (buildError !== null) return;
+
+      const before = requestedPaths.length;
+      const refused = await runCli(
+        ["crawl", `http://127.0.0.1:${server!.port}/private/clock-1`, "--fields", "title:string", "--data-dir", path.join(workDir, "data")],
+        env,
+        workDir,
+      );
+
+      expect(refused.code).toBe(4);
+      expect(JSON.parse(refused.stdout)).toMatchObject({ ok: false, code: "ROBOTS_DISALLOWED" });
+      expect(requestedPaths.slice(before)).toEqual(["/robots.txt"]);
+    },
+    30_000,
   );
 });

@@ -4,12 +4,15 @@ import { tmpdir } from "os";
 import path from "path";
 import {
   startCrawl,
+  type CrawlOptions,
   type CrawlStartInput,
   type StartCrawlDependencies,
 } from "../src/core/crawl-run.ts";
 import type { LLMProvider } from "../src/core/llm-extractor/providers/LLMProvider.ts";
 import type { AuthorTemplateInput } from "../src/core/template-author/authorTemplate.ts";
 import type { PagePacket } from "../src/core/types.ts";
+import { CrawlFailure } from "../src/core/policy/policy.ts";
+import type { RobotsStatus } from "../src/core/policy/robots.ts";
 import type { ExtractionTemplate } from "../src/core/templating/types.ts";
 import type { TemplateExtractionResult } from "../src/core/template-extractor/types.ts";
 import type { Page } from "playwright";
@@ -185,6 +188,62 @@ describe("crawl start stub wiring", () => {
     expect(harness.authorCalls[0]?.schema).toEqual({ title: "string" });
   });
 
+  it("refuses a URL that robots.txt disallows before rendering it", async () => {
+    const harness = await createHarness({ robots: { "https://example.com/final": "disallowed" } });
+
+    const error = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps).catch(caught => caught);
+
+    expect(error).toBeInstanceOf(CrawlFailure);
+    expect(error).toMatchObject({ code: "ROBOTS_DISALLOWED", policy: null });
+    expect(harness.renders).toBe(0);
+  });
+
+  it("refuses a redirect into a disallowed URL without returning data", async () => {
+    const harness = await createHarness({
+      robots: { "https://example.com/blocked": "disallowed" },
+      pagePacket: { finalUrl: "https://example.com/blocked" },
+    });
+
+    const error = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps).catch(caught => caught);
+
+    expect(error).toMatchObject({ code: "ROBOTS_DISALLOWED" });
+    expect(error.policy.robots).toBe("disallowed");
+    expect(harness.robotsChecks).toEqual(["https://example.com/final", "https://example.com/blocked"]);
+    expect(harness.authorCalls).toHaveLength(0);
+  });
+
+  it("fails with BLOCKED and the Retry-After delay when the page answers 429", async () => {
+    const harness = await createHarness({
+      pagePacket: { response: { status: 429, xRobotsTag: null, tdmReservation: null, tdmPolicy: null, retryAfter: "120" } },
+    });
+
+    const error = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps).catch(caught => caught);
+
+    expect(error).toMatchObject({ code: "BLOCKED", retryAfterSeconds: 120 });
+    expect(harness.authorCalls).toHaveLength(0);
+  });
+
+  it("fails with TIMEOUT when navigation times out", async () => {
+    const timeout = Object.assign(new Error("page.goto: Timeout 30000ms exceeded."), { name: "TimeoutError" });
+    const harness = await createHarness({ renderError: timeout });
+
+    const error = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps).catch(caught => caught);
+
+    expect(error).toMatchObject({ code: "TIMEOUT", policy: null });
+  });
+
+  it("reports the policy signals and keeps the data when the page reserves TDM", async () => {
+    const harness = await createHarness({
+      robots: {},
+      pagePacket: { response: { status: 200, xRobotsTag: "noai", tdmReservation: "1", tdmPolicy: null, retryAfter: null } },
+    });
+
+    const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
+
+    expect(outcome.policy).toMatchObject({ robots: "allowed", tdmReservation: true, xRobotsTag: "noai", httpStatus: 200 });
+    expect(outcome.result.payload).toEqual({ title: "Fixture" });
+  });
+
   it("passes authoring warnings through to the outcome", async () => {
     const harness = await createHarness({ authorWarnings: ["No working selector found for \"title\""] });
 
@@ -198,11 +257,17 @@ function fieldsInput(schema: Record<string, "string" | "number">): CrawlStartInp
   return { target: "https://example.com/final", source: "fields", schema };
 }
 
-async function createHarness(config: { authorWarnings?: string[] } = {}) {
+async function createHarness(config: {
+  authorWarnings?: string[];
+  pagePacket?: Partial<PagePacket>;
+  renderError?: Error;
+  robots?: Record<string, RobotsStatus>;
+} = {}) {
   const rootPath = await createTempDir();
   const store = createDomainStore({ targetUrl: "https://example.com/final", rootPath });
   const authorCalls: AuthorTemplateInput[] = [];
-  const state = { providerResolutions: 0, suggestCalls: 0 };
+  const state = { providerResolutions: 0, suggestCalls: 0, renders: 0 };
+  const robotsChecks: string[] = [];
   const provider: LLMProvider = {
     name: "claude",
     async completeStructured() {
@@ -212,7 +277,9 @@ async function createHarness(config: { authorWarnings?: string[] } = {}) {
 
   const deps: StartCrawlDependencies = {
     async withRenderedPage(_url, handler) {
-      return handler({ page: {} as Page, pagePacket: createPagePacket() });
+      state.renders += 1;
+      if (config.renderError) throw config.renderError;
+      return handler({ page: {} as Page, pagePacket: { ...createPagePacket(), ...config.pagePacket } });
     },
     createDomainStore: (input) => createDomainStore({ ...input, rootPath }),
     readTemplateForPattern: (inputStore, urlPattern, userSchema) =>
@@ -245,6 +312,10 @@ async function createHarness(config: { authorWarnings?: string[] } = {}) {
     store,
     deps,
     authorCalls,
+    robotsChecks,
+    get renders() {
+      return state.renders;
+    },
     get providerResolutions() {
       return state.providerResolutions;
     },
@@ -257,6 +328,14 @@ async function createHarness(config: { authorWarnings?: string[] } = {}) {
         return provider;
       },
       dataDir: rootPath,
-    },
+      robots: config.robots
+        ? {
+            async check(url: string) {
+              robotsChecks.push(url);
+              return config.robots![url] ?? "allowed";
+            },
+          }
+        : null,
+    } satisfies CrawlOptions,
   };
 }

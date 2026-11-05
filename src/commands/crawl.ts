@@ -9,6 +9,7 @@ export type CrawlArguments = {
   "data-dir"?: string;
   "max-repairs"?: number;
   "user-agent"?: string;
+  "ignore-robots"?: boolean;
   json?: boolean;
 };
 
@@ -53,7 +54,11 @@ export function createCrawlCommand(
         })
         .option("user-agent", {
           type: "string",
-          describe: "User agent for page requests. Defaults to userAgent in the nearest turbo-crawl.json, then in ~/.config/turbo-crawl/config.json, then turbo-crawl/<version>.",
+          describe: "User agent for page and robots.txt requests. Defaults to userAgent in the nearest turbo-crawl.json, then in ~/.config/turbo-crawl/config.json, then turbo-crawl/<version>.",
+        })
+        .option("ignore-robots", {
+          type: "boolean",
+          describe: "Do not check robots.txt before rendering a page.",
         })
         .option("json", {
           type: "boolean",
@@ -77,6 +82,7 @@ export function createCrawlCommand(
           dataDir,
           maxRepairs: argv["max-repairs"],
           userAgent: argv["user-agent"],
+          ignoreRobots: argv["ignore-robots"],
         }),
       );
     },
