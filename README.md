@@ -62,10 +62,9 @@ turbo-crawl crawl <url> [options]
 | `--fields name:type,...` | Fields to extract. Types: `string`, `text`, `number`, `boolean`, `date`, `url`. Omit it and the agent suggests fields for the page. |
 | `--provider <name>` | `auto` (default), `claude`, `codex` or `lmstudio`. `auto` picks `claude` if it is installed, otherwise `codex`. |
 | `--model <id>` | Model passed to the provider (e.g. `sonnet` or `opus` for Claude). Defaults to the provider's own default. |
-| `--data-dir <path>` | Where schemas, templates and results are stored. Default `./data`. |
+| `--data-dir <path>` | Where templates and results are stored. Default `./data`. |
 | `--max-repairs <n>` | How many times the agent may fix failing selectors. Default `2`. |
-| `--json` | Run without the TUI and print JSON. This is automatic when `--fields` is given, output is piped, or you are not running under Bun. |
-| `--tui` / `--no-tui` | Force or disable the interactive TUI (needs Bun, see below). |
+| `--json` | Accepted for compatibility. The result is always JSON. |
 
 The result goes to stdout as JSON and progress goes to stderr, so `turbo-crawl crawl <url> --fields ... > item.json` works as expected. Exit codes: `0` success, `1` runtime error, `2` invalid arguments.
 
@@ -93,7 +92,6 @@ The result goes to stdout as JSON and progress goes to stderr, so `turbo-crawl c
 
 ```
 data/<domain>/
-  schemas/<timestamp>.json         field lists you created or the agent suggested
   templates/<hash>.json            one template per URL pattern and field set
   packets/<url-hash>/
     packet.json                    what was captured from the page
@@ -102,16 +100,6 @@ data/<domain>/
 ```
 
 Templates are plain JSON. You can review them, edit selectors by hand, or commit them next to your code.
-
-## Interactive TUI (Bun)
-
-With [Bun](https://bun.sh) installed, run the interactive schema builder:
-
-```bash
-bunx @fragmentoid/turbo-crawl crawl https://example.com --tui
-```
-
-It suggests stored templates and schemas for the domain, lets you build a schema field by field (or press Tab with no fields to let the agent suggest them), and shows the extracted values when the crawl is done.
 
 ## Development
 
