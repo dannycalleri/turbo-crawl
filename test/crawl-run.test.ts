@@ -281,6 +281,14 @@ describe("crawl start stub wiring", () => {
     expect(error).toMatchObject({ code: "TIMEOUT", policy: null });
   });
 
+  it("fails with HTTP_ERROR when the host cannot be reached", async () => {
+    const harness = await createHarness({ renderError: new Error("page.goto: net::ERR_NAME_NOT_RESOLVED at https://example.com/final") });
+
+    const error = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps).catch(caught => caught);
+
+    expect(error).toMatchObject({ code: "HTTP_ERROR", policy: null });
+  });
+
   it("reports the policy signals and keeps the data when the page reserves TDM", async () => {
     const harness = await createHarness({
       robots: {},
@@ -316,7 +324,10 @@ describe("listing pages", () => {
     createdAt: "2026-11-05T00:00:00.000Z",
   };
   const links: ListingLinks = {
-    itemUrls: ["https://example.com/products/a-1", "https://example.com/products/b-2"],
+    items: [
+      { url: "https://example.com/products/a-1", text: "A", cssPath: "ul.grid > li > a.card" },
+      { url: "https://example.com/products/b-2", text: "B", cssPath: "ul.grid > li > a.card" },
+    ],
     paginationUrls: ["https://example.com/final?page=2"],
   };
   const productGroup: LinkGroup = {
@@ -340,8 +351,8 @@ describe("listing pages", () => {
 
     expect(outcome).toMatchObject({
       kind: "listing",
-      itemUrls: classification.itemUrls,
-      paginationUrls: classification.paginationUrls,
+      items: links.items,
+      paginationUrls: links.paginationUrls,
       llmUsed: true,
       templateFit: { templateId: "listing_fixture", matchedPattern: true },
     });
@@ -411,6 +422,33 @@ describe("listing pages", () => {
 
     expect(outcome.kind).toBe("item");
     expect(outcome.warnings.some(warning => warning.includes(broken))).toBe(true);
+  });
+
+  it("never treats the page as a listing when the caller expects a detail page", async () => {
+    const harness = await createHarness({ linkGroups: [productGroup], listingLinks: () => links });
+    await saveListingTemplate(harness.store, listingTemplate);
+
+    const outcome = await startCrawl({ ...fieldsInput({ title: "string" }), expect: "detail" }, harness.options, harness.deps);
+
+    expect(outcome.kind).toBe("item");
+    expect(harness.classifyCalls).toHaveLength(0);
+  });
+
+  it("asks the agent for a listing without the pre-gate when the caller expects one, and fails if it is not one", async () => {
+    const asListing = await createHarness({ classification: { kind: "listing", template: listingTemplate, ...links, calls: [], provider: "claude", warnings: [] } });
+    await saveTemplate(asListing.store, createTemplate());
+
+    const outcome = await startCrawl({ ...fieldsInput({}), expect: "listing" }, asListing.options, asListing.deps);
+
+    expect(outcome).toMatchObject({ kind: "listing", items: links.items });
+    expect(asListing.classifyCalls).toHaveLength(1);
+
+    const notListing = await createHarness({ classification: { kind: "detail", calls: [] } });
+    const failure = await startCrawl({ ...fieldsInput({}), expect: "listing" }, notListing.options, notListing.deps).catch(error => error);
+
+    expect(failure).toBeInstanceOf(CrawlFailure);
+    expect(failure.code).toBe("TEMPLATE_MISSING");
+    expect(notListing.authorCalls).toHaveLength(0);
   });
 
   it("goes on to the field templates when no saved listing template fits", async () => {

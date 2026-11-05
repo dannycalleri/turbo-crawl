@@ -22,7 +22,7 @@ import {
   type ClassifyPageInput,
   type PageClassification,
 } from "./template-author/classifyPage.ts";
-import { summarizeLinkGroups, type LinkGroup } from "./extraction/links.ts";
+import { summarizeLinkGroups, type LinkGroup, type LinkItem } from "./extraction/links.ts";
 import { readListingLinks, type ListingLinks } from "./template-author/validateListingSelectors.ts";
 import type { ListingTemplate } from "./templating/types.ts";
 import {
@@ -46,6 +46,8 @@ export type CrawlStartInput = {
   target: string;
   schema: UserSchema;
   require?: string[];
+  /** The caller knows the page kind: "detail" never treats it as a listing, "listing" uses only listing templates. */
+  expect?: "detail" | "listing";
 };
 
 export type TemplateFit = {
@@ -54,11 +56,17 @@ export type TemplateFit = {
   matchedPattern: boolean;
 };
 
-export type ItemOutcome = {
-  kind: "item";
+type PageFacts = {
   target: string;
   finalUrl: string;
+  canonicalUrl: string | null;
+  fetchedAt: string;
   urlPattern: string;
+  policy: PolicyInfo;
+};
+
+export type ItemOutcome = PageFacts & {
+  kind: "item";
   path: "template-reuse" | "stale-template" | "authored";
   schema: UserSchema;
   result: TemplateExtractionResult;
@@ -68,22 +76,18 @@ export type ItemOutcome = {
   missing: string[];
   stale: boolean;
   artifactFolder: string | null;
-  policy: PolicyInfo;
   warnings: string[];
 };
 
-export type ListingOutcome = {
+export type ListingOutcome = PageFacts & {
   kind: "listing";
-  target: string;
-  finalUrl: string;
-  urlPattern: string;
-  itemUrls: string[];
+  items: LinkItem[];
   paginationUrls: string[];
+  linkGroups: LinkGroup[];
   llmUsed: boolean;
   provider: LLMProvider["name"] | null;
   templateFit: TemplateFit;
   artifactFolder: string | null;
-  policy: PolicyInfo;
   warnings: string[];
 };
 
@@ -201,26 +205,34 @@ export async function startCrawl(
     if (statusFailure) throw statusFailure;
 
     const urlPattern = inferUrlPattern(finalUrl);
+    const facts: PageFacts = {
+      target: input.target,
+      finalUrl,
+      canonicalUrl: pagePacket.metadata.canonicalUrl,
+      fetchedAt: pagePacket.fetchedAt,
+      urlPattern,
+      policy,
+    };
     const saveArtifacts = (artifacts: PageArtifacts) =>
       options.writeArtifacts === false ? Promise.resolve(null) : deps.savePageArtifacts(store, artifacts).then(folder => folder.path);
-    const savedListings = await deps.listListingTemplates(store);
-    const saved = await deps.listTemplatesForDomain(store, { fields: fieldsGiven ? userSchema : undefined });
+    const savedListings = input.expect === "detail" ? { candidates: [], warnings: [] } : await deps.listListingTemplates(store);
+    const saved = input.expect === "listing"
+      ? { candidates: [], warnings: [] }
+      : await deps.listTemplatesForDomain(store, { fields: fieldsGiven ? userSchema : undefined });
     const storeWarnings = [...savedListings.warnings, ...saved.warnings].map(warning => warning.message);
     const listingFit = await findListingFit(page, savedListings.candidates, urlPattern, deps);
     const listingOutcome = async ({ candidate, links, matchedPattern }: ListingFit): Promise<ListingOutcome> => {
       if (!matchedPattern) await deps.addPatternToTemplate(candidate.path, urlPattern);
       progress(`Read the links with the saved listing template ${candidate.path}.`);
       return {
+        ...facts,
         kind: "listing",
-        target: input.target,
-        finalUrl,
-        urlPattern,
         ...links,
+        linkGroups: await deps.summarizeLinkGroups(page),
         llmUsed: false,
         provider: null,
         templateFit: { templateId: candidate.template.id, templatePath: candidate.path, matchedPattern },
         artifactFolder: await saveArtifacts({ pagePacket }),
-        policy,
         warnings: storeWarnings,
       };
     };
@@ -272,12 +284,9 @@ export async function startCrawl(
       ];
 
       return {
+        ...facts,
         kind: "item",
-        target: input.target,
-        finalUrl,
-        urlPattern,
         schema: candidate.template.schema,
-        policy,
         path: decision.kind === "fit" ? "template-reuse" : "stale-template",
         result,
         llmUsed: false,
@@ -293,7 +302,7 @@ export async function startCrawl(
     if (options.authoring === false) {
       throw new CrawlFailure(
         "TEMPLATE_MISSING",
-        `No saved template fits ${finalUrl}, and authoring is off. Run turbo-crawl on this page with authoring on to write one.`,
+        `No saved ${input.expect === "listing" ? "listing " : ""}template fits ${finalUrl}, and authoring is off. Run turbo-crawl on this page with authoring on to write one.`,
         policy,
       );
     }
@@ -305,7 +314,7 @@ export async function startCrawl(
     const timeoutMs = resolveLlmTimeoutMs();
 
     const groups = await deps.summarizeLinkGroups(page);
-    const classification: PageClassification = looksLikeListing(groups, finalUrl)
+    const classification: PageClassification = input.expect === "listing" || (input.expect !== "detail" && looksLikeListing(groups, finalUrl))
       ? await deps.classifyPage({
           page,
           pagePacket,
@@ -319,16 +328,23 @@ export async function startCrawl(
         })
       : { kind: "detail", calls: [] };
 
+    if (input.expect === "listing" && classification.kind === "detail") {
+      throw new CrawlFailure(
+        "TEMPLATE_MISSING",
+        `The agent says ${finalUrl} is not a listing page, so no listing template was written. Check the URL, or extract it as a detail page.`,
+        policy,
+      );
+    }
+
     if (classification.kind === "listing") {
       const listingArtifact = await deps.saveListingTemplate(store, classification.template);
       progress(`Saved the listing template ${listingArtifact.path}.`);
       return {
+        ...facts,
         kind: "listing",
-        target: input.target,
-        finalUrl,
-        urlPattern,
-        itemUrls: classification.itemUrls,
+        items: classification.items,
         paginationUrls: classification.paginationUrls,
+        linkGroups: groups,
         llmUsed: true,
         provider: classification.provider,
         templateFit: { templateId: classification.template.id, templatePath: listingArtifact.path, matchedPattern: true },
@@ -343,7 +359,6 @@ export async function startCrawl(
             createdAt: classification.template.createdAt,
           },
         }),
-        policy,
         warnings: [...storeWarnings, ...classification.warnings],
       };
     }
@@ -392,12 +407,9 @@ export async function startCrawl(
     });
 
     return {
+      ...facts,
       kind: "item",
-      target: input.target,
-      finalUrl,
-      urlPattern,
       schema: userSchema,
-      policy,
       path: "authored",
       result,
       llmUsed: true,
@@ -435,6 +447,9 @@ async function renderOrTimeout<T>(url: string, render: () => Promise<T>): Promis
   } catch (error) {
     if (error instanceof Error && error.name === "TimeoutError" && /page\.goto/.test(error.message)) {
       throw new CrawlFailure("TIMEOUT", `${url} did not load in time (${error.message.split("\n")[0]}). The site may be slow or unreachable; try again later.`, null);
+    }
+    if (error instanceof Error && /page\.goto: net::ERR_/.test(error.message)) {
+      throw new CrawlFailure("HTTP_ERROR", `${url} could not be reached (${error.message.split("\n")[0]}). Check the URL and the network, or try again later.`, null);
     }
     throw error;
   }

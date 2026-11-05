@@ -124,7 +124,7 @@ export async function classifyPage(input: ClassifyPageInput): Promise<PageClassi
         itemLinks: selectorsOf(passing.itemLinks),
         nextPage: selectorsOf(passing.nextPage),
         pageLinks: selectorsOf(passing.pageLinks),
-        itemUrlPattern: groupLinks(passing.itemLinks[0]!.urls, finalUrl)[0]!.urlPattern,
+        itemUrlPattern: groupLinks(passing.itemLinks[0]!.links.map(link => link.url), finalUrl)[0]!.urlPattern,
         createdFromUrl: finalUrl,
         createdAt: (input.now ?? (() => new Date()))().toISOString(),
     };

@@ -1,5 +1,5 @@
 import type { Page } from "playwright";
-import { cleanLinks, groupLinks, readDomLinks } from "../extraction/links";
+import { cleanLinks, groupLinks, readDomLinks, type LinkItem } from "../extraction/links";
 import type { ListingTemplate } from "../templating/types";
 
 export const MIN_ITEM_LINKS = 2;
@@ -15,12 +15,12 @@ export type ItemLinksFit =
 export type LinkSelectorValidation = {
     selector: string;
     passed: boolean;
-    urls: string[];
+    links: LinkItem[];
     reason: string;
 };
 
 export type ListingLinks = {
-    itemUrls: string[];
+    items: LinkItem[];
     paginationUrls: string[];
 };
 
@@ -50,27 +50,28 @@ export async function validateLinkSelectors(
     const results: LinkSelectorValidation[] = [];
 
     for (const selector of selectors) {
-        let urls: string[];
+        let links: LinkItem[];
         try {
-            urls = await readDomLinks(page, selector);
+            links = await readDomLinks(page, selector);
         } catch (error) {
             const message = error instanceof Error ? error.message.split("\n")[0] : String(error);
-            results.push({ selector, passed: false, urls: [], reason: `selector could not be evaluated: ${message}` });
+            results.push({ selector, passed: false, links: [], reason: `selector could not be evaluated: ${message}` });
             continue;
         }
+        const urls = links.map(link => link.url);
 
         if (role === "itemLinks") {
             const fit = itemLinksFit(urls, pageUrl);
             results.push(fit.fits
-                ? { selector, passed: true, urls: fit.itemUrls, reason: "ok" }
-                : { selector, passed: false, urls, reason: fit.reason });
+                ? { selector, passed: true, links: links.filter(link => fit.itemUrls.includes(link.url)), reason: "ok" }
+                : { selector, passed: false, links, reason: fit.reason });
             continue;
         }
 
         const pageUrls = sameHostLinks(urls, pageUrl);
         results.push(pageUrls.length > 0
-            ? { selector, passed: true, urls: pageUrls, reason: "ok" }
-            : { selector, passed: false, urls, reason: "no link to another page on this host" });
+            ? { selector, passed: true, links: links.filter(link => pageUrls.includes(link.url)), reason: "ok" }
+            : { selector, passed: false, links, reason: "no link to another page on this host" });
     }
 
     return results;
@@ -84,8 +85,8 @@ export async function readListingLinks(page: Page, template: ListingTemplate): P
     const pages = (await validateLinkSelectors(page, "pageLinks", template.pageLinks)).find(result => result.passed);
 
     return {
-        itemUrls: items.urls,
-        paginationUrls: [...new Set([...(next ? next.urls.slice(0, 1) : []), ...(pages?.urls ?? [])])],
+        items: items.links,
+        paginationUrls: [...new Set([...(next ? next.links.slice(0, 1) : []), ...(pages?.links ?? [])].map(link => link.url))],
     };
 }
 

@@ -30,6 +30,9 @@
   "bin": {
     "turbo-crawl": "dist/cli.js"
   },
+  "exports": {
+    ".": "./dist/lib.js"
+  },
   "files": [
     "dist",
     "!dist/**/*.map",

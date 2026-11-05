@@ -21,12 +21,27 @@ const result = await Bun.build({
   throw: false,
 });
 
-if (!result.success) {
-  for (const log of result.logs) {
-    console.error(log);
-  }
+const library = await Bun.build({
+  entrypoints: [resolve(process.cwd(), "src/lib.ts")],
+  outdir: dirname(outFile),
+  naming: { entry: "lib.js" },
+  target: "node",
+  format: "esm",
+  packages: "bundle",
+  external: ["playwright"],
+  define: { "process.env.TURBO_CRAWL_VERSION": JSON.stringify(pkg.version) },
+  sourcemap: "external",
+  throw: false,
+});
 
-  process.exit(1);
+for (const build of [result, library]) {
+  if (!build.success) {
+    for (const log of build.logs) {
+      console.error(log);
+    }
+
+    process.exit(1);
+  }
 }
 
 await chmod(outFile, 0o755);

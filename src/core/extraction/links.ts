@@ -70,10 +70,29 @@ export type LinkGroup = {
     samples: string[];
 };
 
-export async function readDomLinks(page: Page, selector: string): Promise<string[]> {
-    const hrefs = await page.locator(selector).evaluateAll(elements =>
-        elements.map(element => element.getAttribute("href")).filter((href): href is string => href !== null));
-    return cleanLinks(hrefs, page.url());
+export type LinkItem = {
+    url: string;
+    text: string;
+    cssPath: string;
+};
+
+export async function readDomLinks(page: Page, selector: string): Promise<LinkItem[]> {
+    const anchors = await page.locator(selector).evaluateAll(elements => elements.flatMap(element => {
+        const href = element.getAttribute("href");
+        if (href === null) return [];
+        return [{
+            href,
+            text: (element.textContent ?? "").replace(/\s+/g, " ").trim(),
+            cssPath: window.__turboCrawl?.getCssPath(element) ?? "",
+        }];
+    }));
+
+    const links = new Map<string, LinkItem>();
+    for (const anchor of anchors) {
+        const [url] = cleanLinks([anchor.href], page.url());
+        if (url && !links.has(url)) links.set(url, { url, text: anchor.text, cssPath: anchor.cssPath });
+    }
+    return [...links.values()];
 }
 
 export async function summarizeLinkGroups(page: Page): Promise<LinkGroup[]> {
