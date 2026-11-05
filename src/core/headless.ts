@@ -1,12 +1,11 @@
 import { createCrawlRunner, type CrawlOptions, type CrawlOutcome, type CrawlRunner } from "./crawl-run.ts";
-import type { FieldType, UserSchema } from "./llm-extractor/types.ts";
+import { FIELD_TYPES, type FieldType, type UserSchema } from "./llm-extractor/types.ts";
 import {
   ProviderSelectionError,
   resolveProvider,
   type ResolvedProvider,
 } from "./llm-extractor/providers/resolveProvider.ts";
 import { discoverTemplateReuse, type ReuseDiscoveryOptions } from "./reuse-discovery.ts";
-import { PROPERTY_TYPES } from "./session-state.ts";
 
 export const EXIT_OK = 0;
 export const EXIT_RUNTIME = 1;
@@ -36,7 +35,6 @@ export type HeadlessDependencies = {
   createRunner(options: CrawlOptions): CrawlRunner;
   stdout: Writer;
   stderr: Writer;
-  now(): Date;
 };
 
 export const defaultHeadlessDependencies: HeadlessDependencies = {
@@ -45,7 +43,6 @@ export const defaultHeadlessDependencies: HeadlessDependencies = {
   createRunner: options => createCrawlRunner(options),
   stdout: process.stdout,
   stderr: process.stderr,
-  now: () => new Date(),
 };
 
 export function normalizeTarget(raw: string): string {
@@ -75,8 +72,8 @@ export function parseFieldsOption(raw: string): UserSchema {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
       throw new UsageError(`Invalid field name "${name}". Use letters, digits and underscores.`);
     }
-    if (!(PROPERTY_TYPES as readonly string[]).includes(type)) {
-      throw new UsageError(`Unknown type "${type}" for field "${name}". Allowed types: ${PROPERTY_TYPES.join(", ")}.`);
+    if (!(FIELD_TYPES as readonly string[]).includes(type)) {
+      throw new UsageError(`Unknown type "${type}" for field "${name}". Allowed types: ${FIELD_TYPES.join(", ")}.`);
     }
     if (name in schema) {
       throw new UsageError(`Field "${name}" is listed twice in --fields.`);
@@ -186,23 +183,9 @@ export async function runHeadlessCrawl(
       onProgress: log,
     });
 
-    const startedAt = deps.now().toISOString();
     const outcome = reusable
-      ? await runner.startCrawl({
-          target,
-          schema: Object.entries(reusable.schema).map(([name, type]) => ({ name, type })),
-          mode: "interactive",
-          source: "template-reuse",
-          template: reusable,
-          startedAt,
-        })
-      : await runner.startCrawl({
-          target,
-          schema: Object.entries(fields ?? {}).map(([name, type]) => ({ name, type })),
-          mode: "interactive",
-          source: "schema-builder",
-          startedAt,
-        });
+      ? await runner.startCrawl({ target, source: "template-reuse", template: reusable })
+      : await runner.startCrawl({ target, source: "fields", schema: fields ?? {} });
 
     for (const warning of outcome.warnings) {
       log(`warning: ${warning}`);

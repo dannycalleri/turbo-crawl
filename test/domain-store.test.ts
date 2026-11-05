@@ -6,20 +6,16 @@ import {
   createDomainStore,
   ensureDomainStoreDirectories,
   getPagePacketFolder,
-  getSchemaArtifactPath,
   getTemplateArtifactPath,
   getUrlPathHash,
   getUrlPatternHash,
-  listSchemaPreviews,
   listResults,
   normalizeDomain,
   readTemplateCandidatesForPattern,
   readTemplateForPattern,
   readJsonFile,
   savePageArtifacts,
-  saveSchema,
   saveTemplate,
-  toUtcSecondTimestamp,
   writeJsonFile,
 } from "../src/core/domain-store.ts";
 import type { CompactPagePacket } from "../src/core/compactPagePacket.ts";
@@ -178,7 +174,6 @@ describe("domain store foundational helpers", () => {
       rootPath,
       domain: "marketplace.com",
       domainPath: path.join(rootPath, "marketplace.com"),
-      schemasPath: path.join(rootPath, "marketplace.com", "schemas"),
       templatesPath: path.join(rootPath, "marketplace.com", "templates"),
       packetsPath: path.join(rootPath, "marketplace.com", "packets"),
     });
@@ -207,47 +202,8 @@ describe("domain store foundational helpers", () => {
 
     await ensureDomainStoreDirectories(store);
 
-    expect((await stat(store.schemasPath)).isDirectory()).toBe(true);
     expect((await stat(store.templatesPath)).isDirectory()).toBe(true);
     expect((await stat(store.packetsPath)).isDirectory()).toBe(true);
-  });
-
-  it("formats schema timestamps in UTC without milliseconds", () => {
-    expect(toUtcSecondTimestamp(new Date("2026-05-10T20:02:33.987Z"))).toBe(
-      "2026-05-10T20:02:33",
-    );
-  });
-
-  it("resolves schema artifact paths without overwriting same-second files", async () => {
-    const rootPath = await createTempDir();
-    const store = createDomainStore({
-      targetUrl: "https://marketplace.com/products/example",
-      rootPath,
-    });
-    await ensureDomainStoreDirectories(store);
-
-    const firstPath = await getSchemaArtifactPath(
-      store,
-      new Date("2026-05-10T20:02:33.987Z"),
-    );
-    expect(firstPath).toBe(
-      path.join(rootPath, "marketplace.com", "schemas", "2026-05-10T20:02:33.json"),
-    );
-
-    await writeFile(firstPath, "{}");
-
-    const secondPath = await getSchemaArtifactPath(
-      store,
-      new Date("2026-05-10T20:02:33.001Z"),
-    );
-    expect(secondPath).toBe(
-      path.join(
-        rootPath,
-        "marketplace.com",
-        "schemas",
-        "2026-05-10T20:02:33-001.json",
-      ),
-    );
   });
 
   it("writes and reads valid JSON with parent directory creation", async () => {
@@ -260,32 +216,6 @@ describe("domain store foundational helpers", () => {
       title: "Fixture",
     });
     expect(await Bun.file(filePath).text()).toBe('{\n  "title": "Fixture"\n}');
-  });
-
-  it("saves schema JSON and creates domain subfolders", async () => {
-    const rootPath = await createTempDir();
-    const store = createDomainStore({
-      targetUrl: "https://www.marketplace.com/products/example",
-      rootPath,
-    });
-
-    const artifact = await saveSchema(
-      store,
-      { title: "string" },
-      new Date("2026-05-10T20:02:33.987Z"),
-    );
-
-    expect(artifact).toEqual({
-      schema: { title: "string" },
-      createdAt: "2026-05-10T20:02:33",
-      path: path.join(rootPath, "marketplace.com", "schemas", "2026-05-10T20:02:33.json"),
-    });
-    expect((await stat(store.schemasPath)).isDirectory()).toBe(true);
-    expect((await stat(store.templatesPath)).isDirectory()).toBe(true);
-    expect((await stat(store.packetsPath)).isDirectory()).toBe(true);
-    expect(await readJsonFile<{ title: string }>(artifact.path)).toEqual({
-      title: "string",
-    });
   });
 
   it("keeps templates for different field sets on the same URL pattern side by side", async () => {
@@ -408,73 +338,6 @@ describe("domain store foundational helpers", () => {
     });
   });
 
-  it("lists valid schema previews only for the selected domain", async () => {
-    const rootPath = await createTempDir();
-    const store = createDomainStore({
-      targetUrl: "https://marketplace.com/products/example",
-      rootPath,
-    });
-    const otherStore = createDomainStore({
-      targetUrl: "https://other-market.com/products/example",
-      rootPath,
-    });
-
-    await saveSchema(
-      store,
-      { title: "string", price: "number" },
-      new Date("2026-05-10T20:02:33.987Z"),
-    );
-    await saveSchema(
-      otherStore,
-      { ignored: "string" },
-      new Date("2026-05-10T20:02:34.987Z"),
-    );
-
-    const result = await listSchemaPreviews(store);
-
-    expect(result.warnings).toEqual([]);
-    expect(result.candidates).toEqual([
-      {
-        id: path.join(rootPath, "marketplace.com", "schemas", "2026-05-10T20:02:33.json"),
-        label: "2026-05-10T20:02:33",
-        createdAt: "2026-05-10T20:02:33",
-        path: path.join(rootPath, "marketplace.com", "schemas", "2026-05-10T20:02:33.json"),
-        fieldCount: 2,
-        fieldSummaries: [
-          { name: "price", type: "number" },
-          { name: "title", type: "string" },
-        ],
-      },
-    ]);
-  });
-
-  it("reports invalid schema JSON while listing remaining valid schema previews", async () => {
-    const rootPath = await createTempDir();
-    const store = createDomainStore({
-      targetUrl: "https://marketplace.com/products/example",
-      rootPath,
-    });
-    await saveSchema(
-      store,
-      { title: "string" },
-      new Date("2026-05-10T20:02:33.987Z"),
-    );
-    const invalidPath = path.join(store.schemasPath, "invalid.json");
-    await writeFile(invalidPath, "{not-json");
-
-    const result = await listSchemaPreviews(store);
-
-    expect(result.candidates).toHaveLength(1);
-    expect(result.warnings).toEqual([
-      {
-        operation: "read-json",
-        path: invalidPath,
-        message: expect.stringContaining("Unable to read schema JSON"),
-        recoverable: true,
-      },
-    ]);
-  });
-
   it("discovers duplicate matching template candidates deterministically", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
@@ -502,7 +365,7 @@ describe("domain store foundational helpers", () => {
     ].sort());
   });
 
-  it("discovers 500 schemas and a matching template without reading packet contents", async () => {
+  it("finds the matching template among 500 others without reading packet contents", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
       targetUrl: "https://marketplace.com/products/example",
@@ -511,10 +374,6 @@ describe("domain store foundational helpers", () => {
     await ensureDomainStoreDirectories(store);
 
     for (let index = 0; index < 500; index += 1) {
-      await writeJsonFile(path.join(store.schemasPath, `2026-05-10T20:02:${String(index % 60).padStart(2, "0")}-${String(index).padStart(3, "0")}.json`), {
-        title: "string",
-        price: "number",
-      });
       await writeJsonFile(path.join(store.templatesPath, `other-${index}.json`), {
         ...createTemplate(),
         id: `template_other_${index}`,
@@ -526,10 +385,8 @@ describe("domain store foundational helpers", () => {
     await saveTemplate(store, matchingTemplate);
     await writeFile(path.join(store.packetsPath, "broken-packet.json"), "{not-json");
 
-    const schemaResult = await listSchemaPreviews(store);
     const templateResult = await readTemplateCandidatesForPattern(store, "/products/:slug");
 
-    expect(schemaResult.candidates).toHaveLength(500);
     expect(templateResult.candidates.map((candidate) => candidate.template.id)).toEqual([
       matchingTemplate.id,
     ]);

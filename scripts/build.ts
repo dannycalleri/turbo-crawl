@@ -10,10 +10,7 @@ await mkdir(dirname(outFile), { recursive: true });
 const result = await Bun.build({
   entrypoints: [resolve(process.cwd(), "src/index.ts")],
   outdir: dirname(outFile),
-  // The TUI is loaded with a dynamic import, so splitting keeps OpenTUI (bun:ffi)
-  // in a separate chunk that Node never evaluates on the headless path.
-  naming: { entry: "cli.js", chunk: "chunks/[name]-[hash].js", asset: "assets/[name]-[hash].[ext]" },
-  splitting: true,
+  naming: { entry: "cli.js", asset: "assets/[name]-[hash].[ext]" },
   target: "node",
   format: "esm",
   packages: "bundle",

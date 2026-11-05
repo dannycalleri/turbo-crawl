@@ -1,7 +1,6 @@
 import yargs, { type Argv } from "yargs";
 import { createCrawlCommand, type CrawlCommandDependencies } from "./commands/crawl.ts";
-import { runHeadlessCrawl } from "./core/headless.ts";
-import { isBunRuntime, startInteractiveSession } from "./core/session.ts";
+import { EXIT_USAGE, runHeadlessCrawl } from "./core/headless.ts";
 
 type Writer = {
   write(chunk: string): unknown;
@@ -13,10 +12,7 @@ export type CliDependencies = Omit<CrawlCommandDependencies, "setExitCode"> & {
 };
 
 const defaultCliDependencies: CliDependencies = {
-  startInteractiveSession,
   runHeadlessCrawl: input => runHeadlessCrawl(input),
-  isInteractiveTerminal: () => Boolean(process.stdout.isTTY && process.stdin.isTTY),
-  isBunRuntime,
   stdout: process.stdout,
   stderr: process.stderr,
 };
@@ -88,5 +84,6 @@ export async function runCli(
     deps.stderr.write(`${error.message}\n`);
   }
 
-  return 1;
+  // yargs only reports argument errors here; handler failures set the exit code themselves.
+  return EXIT_USAGE;
 }

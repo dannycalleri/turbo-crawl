@@ -1,5 +1,4 @@
 import { withRenderedPage, type RenderedPageContext } from "./crawler.ts";
-import type { SchemaProperty, SessionState } from "./session-state.ts";
 import type { PagePacket } from "./types.ts";
 import type { LLMProvider } from "./llm-extractor/providers/LLMProvider.ts";
 import type { UserSchema } from "./llm-extractor/types.ts";
@@ -18,35 +17,24 @@ import {
   createDomainStore,
   readTemplateForPattern,
   savePageArtifacts,
-  saveSchema,
   saveTemplate,
   type DomainStore,
   type PageArtifacts,
   type PagePacketFolder,
-  type SchemaPreview,
-  type SchemaArtifact,
   type TemplateArtifact,
 } from "./domain-store.ts";
 
-type CrawlStartInputBase = {
-  target: string;
-  schema: SchemaProperty[];
-  mode: "interactive";
-  startedAt: string;
-};
-
 export type CrawlStartInput =
-  | (CrawlStartInputBase & {
-      source: "schema-builder";
-    })
-  | (CrawlStartInputBase & {
-      source: "template-reuse";
+  | {
+      target: string;
+      schema: UserSchema;
+      source: "fields";
+    }
+  | {
+      target: string;
       template: ExtractionTemplate;
-    })
-  | (CrawlStartInputBase & {
-      source: "selected-schema";
-      selectedSchema: SchemaPreview;
-    });
+      source: "template-reuse";
+    };
 
 export type CrawlOutcome = {
   target: string;
@@ -82,11 +70,6 @@ export type StartCrawlDependencies = {
     handler: (context: RenderedPageContext) => Promise<T> | T,
   ): Promise<T>;
   createDomainStore(input: { targetUrl: string; rootPath?: string }): DomainStore;
-  saveSchema(
-    store: DomainStore,
-    schema: UserSchema,
-    createdAt: Date,
-  ): Promise<SchemaArtifact>;
   readTemplateForPattern(
     store: DomainStore,
     urlPattern: string,
@@ -110,62 +93,9 @@ export type StartCrawlDependencies = {
   }): Promise<TemplateExtractionResult>;
 };
 
-export function createCrawlStartInput(
-  state: SessionState,
-  now: Date = new Date(),
-): CrawlStartInput {
-  if (state.reuseSource === "template-reuse" && state.matchedTemplate) {
-    return {
-      target: state.target,
-      schema: Object.entries(state.matchedTemplate.schema)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([name, type]) => ({
-          name,
-          type,
-        })),
-      mode: state.modeLabel,
-      source: "template-reuse",
-      template: state.matchedTemplate,
-      startedAt: now.toISOString(),
-    };
-  }
-
-  if (state.reuseSource === "selected-schema" && state.selectedSchema) {
-    return {
-      target: state.target,
-      schema: state.selectedSchema.fieldSummaries.map(({ name, type }) => ({ name, type })),
-      mode: state.modeLabel,
-      source: "selected-schema",
-      selectedSchema: state.selectedSchema,
-      startedAt: now.toISOString(),
-    };
-  }
-
-  return {
-    target: state.target,
-    schema: state.properties,
-    mode: state.modeLabel,
-    source: "schema-builder",
-    startedAt: now.toISOString(),
-  };
-}
-
-export async function runPendingCrawlStart(
-  state: SessionState,
-  runner: CrawlRunner,
-  now: Date = new Date(),
-): Promise<CrawlOutcome | null> {
-  if (state.phase !== "crawl-pending") {
-    return null;
-  }
-
-  return runner.startCrawl(createCrawlStartInput(state, now));
-}
-
 export const defaultStartCrawlDependencies: StartCrawlDependencies = {
   withRenderedPage,
   createDomainStore,
-  saveSchema,
   readTemplateForPattern,
   saveTemplate,
   savePageArtifacts,
@@ -190,13 +120,7 @@ export async function startCrawl(
   deps: StartCrawlDependencies = defaultStartCrawlDependencies,
 ): Promise<CrawlOutcome> {
   const progress = options.onProgress ?? (() => {});
-  let userSchema =
-    input.source === "template-reuse"
-      ? input.template.schema
-      : input.schema.reduce((acc: UserSchema, tuple: SchemaProperty) => {
-          acc[tuple.name] = tuple.type;
-          return acc;
-        }, {} as UserSchema);
+  let userSchema = input.source === "template-reuse" ? input.template.schema : input.schema;
   const store = deps.createDomainStore({ targetUrl: input.target, rootPath: options.dataDir });
 
   progress(`Rendering ${input.target}…`);
@@ -247,9 +171,6 @@ export async function startCrawl(
       progress(`Suggested fields: ${suggestion.fields.map(field => `${field.name}:${field.type}`).join(", ")}`);
     }
 
-    if (input.source === "schema-builder") {
-      await deps.saveSchema(store, userSchema, new Date(input.startedAt));
-    }
     const authored = await deps.authorTemplate({
       schema: userSchema,
       page,
