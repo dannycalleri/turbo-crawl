@@ -97,19 +97,30 @@ The URL pattern is still a hint. When a template that knows the page's URL patte
 
 ### Listing pages
 
-When no saved template fits a page and the page links to at least 4 pages that share one URL shape other than the page's own (a category, archive or search page), turbo-crawl asks the agent if the page is a listing. For a listing, it saves a listing template in `data/<domain>/listings/` and prints the links instead of fields:
+Point turbo-crawl at a category, archive or search page and it extracts every item, following the pagination, up to `--max-items`:
 
-```json
-{
-  "ok": true,
-  "kind": "listing",
-  "itemUrls": ["https://shop.example/products/clock-1", "https://shop.example/products/watch-2"],
-  "paginationUrls": ["https://shop.example/category/clocks?page=2"],
-  ...
-}
+```console
+$ turbo-crawl crawl https://books.toscrape.com/catalogue/category/books/mystery_3/index.html \
+    --fields title:string,price:number --max-items 25 > books.ndjson
+…
+Crawled 2 listing page(s): 25 item(s) extracted, 0 failed.
+
+$ head -1 books.ndjson
+{"ok":true,"kind":"item","url":"https://books.toscrape.com/catalogue/sharp-objects_997/index.html","data":{"title":"Sharp Objects","price":47.82},...}
 ```
 
-The next listing page with the same layout is read with the saved listing template, with no agent call.
+- **Recognizing a listing.** When no saved template fits a page and the page links to at least 4 pages that share one URL shape other than its own, turbo-crawl asks the agent if the page is a listing. For a listing, the agent writes link selectors for the items, the next page and the numbered pages. They are checked on the live page and saved as a listing template in `data/<domain>/listings/`. Later listing pages with the same layout, on this or other categories, are read with no agent call.
+- **Following it.** Each item is extracted as a detail page. When `--fields` is not given, the fields the agent suggests for the first item are used for all of them. All the items of a listing page are extracted before the next listing page is read. Pagination pages are read with the start page's listing template.
+- **Staying polite.** Each URL is visited once (ignoring the fragment and `utm_*` parameters), only on the start URL's host, with robots.txt checked for every page.
+
+| Option | Description |
+| --- | --- |
+| `--max-pages <n>` | Most listing pages to read, the first one included. Default `10`. |
+| `--max-items <n>` | Most items to try, extracted or failed. Default `200`. |
+| `--delay-ms <n>` | Milliseconds to wait between two page requests. Default `250`. |
+| `--no-follow` | Print only the listing's links, as one JSON object: `{ "ok": true, "kind": "listing", "itemUrls": [...], "paginationUrls": [...], "templateFit": {...}, ... }`. |
+
+The output is one JSON line per item (NDJSON). A failed item gives a line with `"ok": false`, its `url`, `code` and `message`, and the crawl goes on. A summary goes to stderr. The command exits 0 when at least one item was extracted, and 1 when none was.
 
 ### User agent
 
