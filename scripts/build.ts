@@ -1,4 +1,4 @@
-import { chmod, mkdir, rm } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 const outFile = resolve(process.cwd(), "dist/cli.js");
@@ -45,3 +45,9 @@ for (const build of [result, library]) {
 }
 
 await chmod(outFile, 0o755);
+
+const publicTypes = await readFile(resolve(process.cwd(), "src/lib-types.ts"), "utf8");
+await writeFile(
+  resolve(dirname(outFile), "lib.d.ts"),
+  `${publicTypes}\nexport declare function createCrawler(options: CrawlerOptions): Crawler;\n`,
+);

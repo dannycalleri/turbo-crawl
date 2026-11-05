@@ -40,3 +40,22 @@ jobs:
       - run: bun run build
       - run: node dist/cli.js --help
       - run: node dist/cli.js crawl --help
+      - run: node -e "import('./dist/lib.js').then(m => { if (typeof m.createCrawler !== 'function') process.exit(1) })"
+
+  playwright-minimum:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bun install
+      - run: bun add --dev playwright@1.50.1
+      - run: npx playwright install --with-deps chromium
+      - run: bun run build
+      - run: bun test test/*.browser.test.ts
+      - run: bun test test/*.e2e.test.ts
