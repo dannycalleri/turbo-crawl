@@ -8,6 +8,7 @@ export type CrawlArguments = {
   model?: string;
   "data-dir"?: string;
   "max-repairs"?: number;
+  "user-agent"?: string;
   json?: boolean;
 };
 
@@ -50,6 +51,10 @@ export function createCrawlCommand(
           describe: "How many times the agent may fix selectors that failed on the page.",
           default: 2,
         })
+        .option("user-agent", {
+          type: "string",
+          describe: "User agent for page requests. Defaults to userAgent in the nearest turbo-crawl.json, then in ~/.config/turbo-crawl/config.json, then turbo-crawl/<version>.",
+        })
         .option("json", {
           type: "boolean",
           describe: "Accepted for compatibility. The result is always printed as JSON.",
@@ -71,6 +76,7 @@ export function createCrawlCommand(
           model: argv.model,
           dataDir,
           maxRepairs: argv["max-repairs"],
+          userAgent: argv["user-agent"],
         }),
       );
     },

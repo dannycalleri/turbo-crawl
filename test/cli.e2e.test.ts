@@ -49,9 +49,9 @@ const claudeEnvelope = {
 
 type RunResult = { code: number | null; stdout: string; stderr: string };
 
-function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<RunResult> {
+function runCli(args: string[], env: NodeJS.ProcessEnv, cwd: string): Promise<RunResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn("node", [cliPath, ...args], { cwd: repoRoot, env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("node", [cliPath, ...args], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8").on("data", chunk => (stdout += chunk));
@@ -65,6 +65,7 @@ describe("turbo-crawl CLI end to end", () => {
   let buildError: string | null = null;
   let server: ReturnType<typeof Bun.serve> | null = null;
   let workDir = "";
+  const userAgents: string[] = [];
   let counterFile = "";
   let env: NodeJS.ProcessEnv = {};
 
@@ -79,6 +80,7 @@ describe("turbo-crawl CLI end to end", () => {
       port: 0,
       hostname: "127.0.0.1",
       fetch(request) {
+        userAgents.push(request.headers.get("user-agent") ?? "");
         const html = pages[new URL(request.url).pathname];
         return html
           ? new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } })
@@ -98,8 +100,13 @@ describe("turbo-crawl CLI end to end", () => {
       "utf8",
     );
     await chmod(path.join(binDir, "claude"), 0o755);
+    await writeFile(path.join(workDir, "turbo-crawl.json"), JSON.stringify({ userAgent: "E2EBot/1.0" }), "utf8");
 
-    env = { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ""}` };
+    env = {
+      ...process.env,
+      PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ""}`,
+      XDG_CONFIG_HOME: path.join(workDir, "xdg"),
+    };
     delete env.TURBO_CRAWL_PROVIDER;
     delete env.TURBO_CRAWL_MODEL;
     delete env.TURBO_CRAWL_DATA_DIR;
@@ -127,6 +134,7 @@ describe("turbo-crawl CLI end to end", () => {
       const first = await runCli(
         ["crawl", `${base}/products/clock-1`, "--fields", "title:string,price:number", "--data-dir", dataDir, "--json", "--provider", "claude"],
         env,
+        workDir,
       );
       expect(first.stderr).not.toContain("error:");
       expect(first.code).toBe(0);
@@ -139,7 +147,7 @@ describe("turbo-crawl CLI end to end", () => {
         data: { title: "Clock", price: 49 },
       });
 
-      const second = await runCli(["crawl", `${base}/products/watch-2`, "--data-dir", dataDir, "--json"], env);
+      const second = await runCli(["crawl", `${base}/products/watch-2`, "--data-dir", dataDir, "--json"], env, workDir);
       expect(second.stderr).not.toContain("error:");
       expect(second.code).toBe(0);
       const reused = JSON.parse(second.stdout);
@@ -152,6 +160,7 @@ describe("turbo-crawl CLI end to end", () => {
 
       const calls = (await readFile(counterFile, "utf8")).trim().split("\n");
       expect(calls).toHaveLength(1);
+      expect(new Set(userAgents)).toEqual(new Set(["E2EBot/1.0"]));
     },
     60_000,
   );

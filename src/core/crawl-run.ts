@@ -1,4 +1,4 @@
-import { withRenderedPage, type RenderedPageContext } from "./crawler.ts";
+import { withRenderedPage, type BrowserSessionOptions, type RenderedPageContext } from "./crawler.ts";
 import type { PagePacket } from "./types.ts";
 import type { LLMProvider } from "./llm-extractor/providers/LLMProvider.ts";
 import type { UserSchema } from "./llm-extractor/types.ts";
@@ -61,6 +61,7 @@ export type CrawlOptions = {
   model?: string | null;
   maxRepairs?: number;
   dataDir?: string;
+  userAgent?: string;
   onProgress?: (message: string) => void;
 };
 
@@ -68,6 +69,7 @@ export type StartCrawlDependencies = {
   withRenderedPage<T>(
     url: string,
     handler: (context: RenderedPageContext) => Promise<T> | T,
+    options?: BrowserSessionOptions,
   ): Promise<T>;
   createDomainStore(input: { targetUrl: string; rootPath?: string }): DomainStore;
   readTemplateForPattern(
@@ -94,7 +96,7 @@ export type StartCrawlDependencies = {
 };
 
 export const defaultStartCrawlDependencies: StartCrawlDependencies = {
-  withRenderedPage,
+  withRenderedPage: (url, handler, options) => withRenderedPage(url, handler, options),
   createDomainStore,
   readTemplateForPattern,
   saveTemplate,
@@ -210,7 +212,7 @@ export async function startCrawl(
       artifactFolder: folder.path,
       warnings,
     };
-  });
+  }, { userAgent: options.userAgent });
 }
 
 export function resolveLlmTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {

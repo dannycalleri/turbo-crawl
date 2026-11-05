@@ -271,6 +271,7 @@ describe("withRenderedPage", () => {
           closeHasNotRunYet: !calls.includes("close"),
         };
       },
+      {},
       deps,
     );
 
@@ -291,6 +292,7 @@ describe("withRenderedPage", () => {
           calls.push("handler");
           throw new Error("handler failed");
         },
+        {},
         deps,
       ),
     ).rejects.toThrow("handler failed");

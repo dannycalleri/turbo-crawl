@@ -8,6 +8,7 @@ import { extractImages } from "./extraction/images";
 import { extractTables } from "./extraction/tables";
 import type { PagePacket, PageResponse } from "./types";
 import { installPageContextHelpers } from "./pageContext/runtime.ts";
+import { DEFAULT_USER_AGENT } from "./config.ts";
 
 export type CrawlerDependencies = {
   now(): Date;
@@ -45,8 +46,6 @@ const defaultCrawlerDependencies: CrawlerDependencies = {
 
 export const DEFAULT_NAVIGATION_TIMEOUT_MS = 30_000;
 export const DEFAULT_SETTLE_TIMEOUT_MS = 10_000;
-const LEGACY_CHROME_USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36";
 const MAX_VISIBLE_BLOCKS = 250;
 
 export type BrowserSessionOptions = {
@@ -80,7 +79,7 @@ export function createBrowserSession(
       }
       const page = await (await browser).newPage({
         viewport: { width: 1440, height: 1200 },
-        userAgent: options.userAgent ?? LEGACY_CHROME_USER_AGENT,
+        userAgent: options.userAgent ?? DEFAULT_USER_AGENT,
       });
 
       try {
@@ -105,15 +104,16 @@ export async function fetchRenderedPage(
   url: string,
   deps: CrawlerDependencies = defaultCrawlerDependencies,
 ): Promise<PagePacket> {
-  return withRenderedPage(url, ({ pagePacket }) => pagePacket, deps);
+  return withRenderedPage(url, ({ pagePacket }) => pagePacket, {}, deps);
 }
 
 export async function withRenderedPage<T>(
   url: string,
   handler: (context: RenderedPageContext) => Promise<T> | T,
+  options: BrowserSessionOptions = {},
   deps: CrawlerDependencies = defaultCrawlerDependencies,
 ): Promise<T> {
-  const session = createBrowserSession({}, deps);
+  const session = createBrowserSession(options, deps);
 
   try {
     return await session.withRenderedPage(url, handler);
