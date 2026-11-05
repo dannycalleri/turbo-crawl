@@ -93,12 +93,12 @@ export function createCrawlCommand(
         })
         .option("max-items", {
           type: "number",
-          describe: "Most items to extract when following a listing.",
+          describe: "Most items to try (extracted or failed) when following a listing.",
           default: 200,
         })
         .option("delay-ms", {
           type: "number",
-          describe: "Milliseconds to wait before each page request when following a listing.",
+          describe: "Milliseconds to wait between two page requests when following a listing.",
           default: 250,
         })
         .option("json", {
