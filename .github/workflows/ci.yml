@@ -57,5 +57,5 @@ jobs:
       - run: bun add --dev playwright@1.50.1
       - run: npx playwright install --with-deps chromium
       - run: bun run build
-      - run: bun test test/*.browser.test.ts
+      - run: for f in test/*.browser.test.ts; do bun test "$f" || exit 1; done
       - run: bun test test/*.e2e.test.ts
