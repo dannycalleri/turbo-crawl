@@ -175,6 +175,7 @@ describe("domain store foundational helpers", () => {
       domain: "marketplace.com",
       domainPath: path.join(rootPath, "marketplace.com"),
       templatesPath: path.join(rootPath, "marketplace.com", "templates"),
+      listingsPath: path.join(rootPath, "marketplace.com", "listings"),
       packetsPath: path.join(rootPath, "marketplace.com", "packets"),
     });
 

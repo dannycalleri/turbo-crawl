@@ -1,4 +1,5 @@
 import type { Page } from "playwright";
+import { inferUrlPattern } from "../templating/inferUrlPattern";
 
 export type LinkBlock = {
     nodeId: string;
@@ -61,4 +62,51 @@ export async function extractLinks(page: Page): Promise<LinkBlock[]> {
     return links
         .sort((a, b) => b.score - a.score)
         .slice(0, 100);
+}
+
+export type LinkGroup = {
+    urlPattern: string;
+    count: number;
+    samples: string[];
+};
+
+export async function readDomLinks(page: Page, selector: string): Promise<string[]> {
+    const hrefs = await page.locator(selector).evaluateAll(elements =>
+        elements.map(element => element.getAttribute("href")).filter((href): href is string => href !== null));
+    return cleanLinks(hrefs, page.url());
+}
+
+export async function summarizeLinkGroups(page: Page): Promise<LinkGroup[]> {
+    const hrefs = await page.locator("a[href]").evaluateAll(elements =>
+        elements.map(element => element.getAttribute("href") ?? ""));
+    return groupLinks(cleanLinks(hrefs, page.url()), page.url());
+}
+
+export function cleanLinks(hrefs: string[], baseUrl: string): string[] {
+    const seen = new Set<string>();
+    for (const href of hrefs) {
+        let url: URL;
+        try {
+            url = new URL(href.trim(), baseUrl);
+        } catch {
+            continue;
+        }
+        if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+        url.hash = "";
+        seen.add(url.toString());
+    }
+    return [...seen];
+}
+
+export function groupLinks(urls: string[], pageUrl: string): LinkGroup[] {
+    const host = new URL(pageUrl).host;
+    const groups = new Map<string, string[]>();
+    for (const url of urls) {
+        if (new URL(url).host !== host) continue;
+        const pattern = inferUrlPattern(url);
+        groups.set(pattern, [...(groups.get(pattern) ?? []), url]);
+    }
+    return [...groups.entries()]
+        .map(([urlPattern, members]) => ({ urlPattern, count: members.length, samples: members.slice(0, 3) }))
+        .sort((left, right) => right.count - left.count || left.urlPattern.localeCompare(right.urlPattern));
 }

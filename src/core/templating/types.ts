@@ -44,3 +44,16 @@ export type ExtractionTemplate = {
 
     fields: Record<string, FieldTemplate>;
 };
+
+export type ListingTemplate = {
+    id: string;
+    kind: "listing";
+    domain: string;
+    urlPatterns: string[];
+    itemLinks: string[];
+    nextPage: string[];
+    pageLinks: string[];
+    itemUrlPattern: string;
+    createdFromUrl: string;
+    createdAt: string;
+};

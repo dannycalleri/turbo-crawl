@@ -17,12 +17,22 @@ import {
 } from "./template-author/authorTemplate.ts";
 import { suggestSchema } from "./template-author/suggestSchema.ts";
 import {
+  classifyPage,
+  looksLikeListing,
+  type ClassifyPageInput,
+  type PageClassification,
+} from "./template-author/classifyPage.ts";
+import { summarizeLinkGroups, type LinkGroup } from "./extraction/links.ts";
+import type { ListingTemplate } from "./templating/types.ts";
+import {
   addPatternToTemplate,
   createDomainStore,
   listTemplatesForDomain,
   savePageArtifacts,
+  saveListingTemplate,
   saveTemplate,
   type DomainStore,
+  type ListingTemplateArtifact,
   type ReuseDiscoveryResult,
   type TemplateMatchCandidate,
   type PageArtifacts,
@@ -42,7 +52,8 @@ export type TemplateFit = {
   matchedPattern: boolean;
 };
 
-export type CrawlOutcome = {
+export type ItemOutcome = {
+  kind: "item";
   target: string;
   finalUrl: string;
   urlPattern: string;
@@ -58,6 +69,23 @@ export type CrawlOutcome = {
   policy: PolicyInfo;
   warnings: string[];
 };
+
+export type ListingOutcome = {
+  kind: "listing";
+  target: string;
+  finalUrl: string;
+  urlPattern: string;
+  itemUrls: string[];
+  paginationUrls: string[];
+  llmUsed: boolean;
+  provider: LLMProvider["name"] | null;
+  templateFit: TemplateFit;
+  artifactFolder: string | null;
+  policy: PolicyInfo;
+  warnings: string[];
+};
+
+export type CrawlOutcome = ItemOutcome | ListingOutcome;
 
 export type CrawlRunner = {
   startCrawl(input: CrawlStartInput): Promise<CrawlOutcome>;
@@ -99,6 +127,9 @@ export type StartCrawlDependencies = {
   capturePageSkeleton(page: RenderedPageContext["page"]): Promise<PageSkeleton>;
   authorTemplate(input: AuthorTemplateInput): Promise<AuthoredTemplateResult>;
   suggestSchema: typeof suggestSchema;
+  summarizeLinkGroups(page: RenderedPageContext["page"]): Promise<LinkGroup[]>;
+  classifyPage(input: ClassifyPageInput): Promise<PageClassification>;
+  saveListingTemplate(store: DomainStore, template: ListingTemplate): Promise<ListingTemplateArtifact>;
   extractWithTemplate(input: {
     page: RenderedPageContext["page"];
     pagePacket: PagePacket;
@@ -116,6 +147,9 @@ export const defaultStartCrawlDependencies: StartCrawlDependencies = {
   capturePageSkeleton,
   authorTemplate,
   suggestSchema,
+  summarizeLinkGroups,
+  classifyPage,
+  saveListingTemplate,
   extractWithTemplate,
 };
 
@@ -161,10 +195,10 @@ export async function startCrawl(
     if (statusFailure) throw statusFailure;
 
     const urlPattern = inferUrlPattern(finalUrl);
-    const listing = await deps.listTemplatesForDomain(store, { fields: fieldsGiven ? userSchema : undefined });
-    const listingWarnings = listing.warnings.map(warning => warning.message);
+    const saved = await deps.listTemplatesForDomain(store, { fields: fieldsGiven ? userSchema : undefined });
+    const storeWarnings = saved.warnings.map(warning => warning.message);
     const trials: TemplateTrial[] = [];
-    for (const candidate of listing.candidates) {
+    for (const candidate of saved.candidates) {
       trials.push({ candidate, result: await deps.extractWithTemplate({ page, pagePacket, template: candidate.template }) });
     }
     const decision = decideTemplate(trials, { urlPattern, require: input.require, fieldsGiven });
@@ -193,7 +227,7 @@ export async function startCrawl(
         : `The saved template for ${urlPattern} no longer fits this page; returning a stale result.`);
       const missing = missingFields(candidate.template.schema, result.payload);
       const warnings = [
-        ...listingWarnings,
+        ...storeWarnings,
         ...(decision.kind === "stale"
           ? [`The template ${candidate.path} no longer fits this page (${decision.reasons.join("; ")}); the page layout may have changed. Re-author it.`]
           : []),
@@ -201,6 +235,7 @@ export async function startCrawl(
       ];
 
       return {
+        kind: "item",
         target: input.target,
         finalUrl,
         urlPattern,
@@ -226,9 +261,57 @@ export async function startCrawl(
       );
     }
 
-    const provider = typeof options.provider === "function" ? options.provider() : options.provider;
+    let resolvedProvider: LLMProvider | null = null;
+    const getProvider = () =>
+      (resolvedProvider ??= typeof options.provider === "function" ? options.provider() : options.provider);
     const skeleton = await deps.capturePageSkeleton(page);
     const timeoutMs = resolveLlmTimeoutMs();
+
+    const groups = await deps.summarizeLinkGroups(page);
+    const classification: PageClassification = looksLikeListing(groups, finalUrl)
+      ? await deps.classifyPage({
+          page,
+          pagePacket,
+          skeleton: skeleton.text,
+          groups,
+          provider: getProvider(),
+          model: options.model ?? null,
+          maxRepairs: options.maxRepairs,
+          timeoutMs,
+          onProgress: progress,
+        })
+      : { kind: "detail", calls: [] };
+
+    if (classification.kind === "listing") {
+      const listingArtifact = await deps.saveListingTemplate(store, classification.template);
+      progress(`Saved the listing template ${listingArtifact.path}.`);
+      return {
+        kind: "listing",
+        target: input.target,
+        finalUrl,
+        urlPattern,
+        itemUrls: classification.itemUrls,
+        paginationUrls: classification.paginationUrls,
+        llmUsed: true,
+        provider: classification.provider,
+        templateFit: { templateId: classification.template.id, templatePath: listingArtifact.path, matchedPattern: true },
+        artifactFolder: await saveArtifacts({
+          pagePacket,
+          llmResult: {
+            provider: classification.provider,
+            model: options.model ?? null,
+            llmUsed: true,
+            calls: classification.calls,
+            warnings: classification.warnings,
+            createdAt: classification.template.createdAt,
+          },
+        }),
+        policy,
+        warnings: [...storeWarnings, ...classification.warnings],
+      };
+    }
+
+    const provider = getProvider();
 
     if (Object.keys(userSchema).length === 0) {
       progress(`Asking ${provider.name} to suggest fields for this page…`);
@@ -257,14 +340,14 @@ export async function startCrawl(
 
     const templateArtifact = await deps.saveTemplate(store, authored.template);
     const result = await deps.extractWithTemplate({ page, pagePacket, template: authored.template });
-    const warnings = [...listingWarnings, ...authored.warnings, ...result.warnings];
+    const warnings = [...storeWarnings, ...authored.warnings, ...result.warnings];
     const artifactFolder = await saveArtifacts({
       pagePacket,
       llmResult: {
         provider: authored.provider,
         model: authored.model,
         llmUsed: true,
-        calls: authored.calls,
+        calls: [...classification.calls, ...authored.calls],
         warnings: authored.warnings,
         createdAt: authored.template.createdAt,
       },
@@ -272,6 +355,7 @@ export async function startCrawl(
     });
 
     return {
+      kind: "item",
       target: input.target,
       finalUrl,
       urlPattern,

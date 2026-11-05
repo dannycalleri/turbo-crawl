@@ -23,7 +23,25 @@ function productPage(title: string, price: string): string {
 </html>`;
 }
 
+function categoryPage(): string {
+  const cards = ["clock-1", "watch-2", "clock-4", "clock-5", "clock-6"]
+    .map(slug => `<li><a class="card-link" href="/products/${slug}">${slug}</a></li>`)
+    .join("");
+  return `<!doctype html>
+<html>
+  <head><title>Clocks | Shop</title></head>
+  <body>
+    <main>
+      <h1>Clocks</h1>
+      <ul class="grid">${cards}</ul>
+      <a rel="next" href="/category/clocks?page=2">Next</a>
+    </main>
+  </body>
+</html>`;
+}
+
 const pages: Record<string, string> = {
+  "/category/clocks": categoryPage(),
   "/robots.txt": "User-agent: *\nDisallow: /private/\n",
   "/products/clock-1": productPage("Clock", "€49.00"),
   "/products/watch-2": productPage("Watch", "€120.50"),
@@ -48,6 +66,11 @@ const claudeEnvelope = {
       },
     },
   },
+};
+
+const classifyEnvelope = {
+  ...claudeEnvelope,
+  structured_output: { pageKind: "listing", itemLinks: ["ul.grid a.card-link"], nextPage: ["a[rel=next]"], pageLinks: [] },
 };
 
 type RunResult = { code: number | null; stdout: string; stderr: string };
@@ -97,11 +120,19 @@ describe("turbo-crawl CLI end to end", () => {
     const binDir = path.join(workDir, "bin");
     counterFile = path.join(workDir, "claude-calls.txt");
     const envelopeFile = path.join(workDir, "envelope.json");
+    const classifyFile = path.join(workDir, "classify.json");
     await mkdir(binDir, { recursive: true });
     await writeFile(envelopeFile, JSON.stringify(claudeEnvelope), "utf8");
+    await writeFile(classifyFile, JSON.stringify(classifyEnvelope), "utf8");
     await writeFile(
       path.join(binDir, "claude"),
-      `#!/bin/sh\ncat > /dev/null\necho call >> "${counterFile}"\ncat "${envelopeFile}"\n`,
+      [
+        "#!/bin/sh",
+        'prompt=$(cat)',
+        `echo call >> "${counterFile}"`,
+        `case "$prompt" in *"listing or a detail page"*) cat "${classifyFile}" ;; *) cat "${envelopeFile}" ;; esac`,
+        "",
+      ].join("\n"),
       "utf8",
     );
     await chmod(path.join(binDir, "claude"), 0o755);
@@ -199,6 +230,33 @@ describe("turbo-crawl CLI end to end", () => {
       expect(refused.code).toBe(4);
       expect(JSON.parse(refused.stdout)).toMatchObject({ ok: false, code: "ROBOTS_DISALLOWED" });
       expect(requestedPaths.slice(before)).toEqual(["/robots.txt"]);
+    },
+    30_000,
+  );
+
+  it(
+    "prints the item and pagination URLs of a category page",
+    async () => {
+      if (buildError !== null) return;
+
+      const base = `http://127.0.0.1:${server!.port}`;
+      const callsBefore = (await readFile(counterFile, "utf8").catch(() => "")).trim().split("\n").filter(Boolean).length;
+
+      const listing = await runCli(["crawl", `${base}/category/clocks`, "--data-dir", path.join(workDir, "data")], env, workDir);
+
+      expect(listing.stderr).not.toContain("error:");
+      expect(listing.code).toBe(0);
+      const printed = JSON.parse(listing.stdout);
+      expect(printed).toMatchObject({
+        ok: true,
+        kind: "listing",
+        llmUsed: true,
+        itemUrls: ["clock-1", "watch-2", "clock-4", "clock-5", "clock-6"].map(slug => `${base}/products/${slug}`),
+        paginationUrls: [`${base}/category/clocks?page=2`],
+      });
+      expect(printed.templateFit.templatePath).toContain(`${path.sep}listings${path.sep}`);
+      const callsAfter = (await readFile(counterFile, "utf8")).trim().split("\n").length;
+      expect(callsAfter - callsBefore).toBe(1);
     },
     30_000,
   );

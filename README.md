@@ -68,6 +68,22 @@ turbo-crawl crawl <url> [options]
 
 The result goes to stdout as JSON and progress goes to stderr, so `turbo-crawl crawl <url> --fields ... > item.json` works as expected. Exit codes: `0` success, `1` runtime error, `2` invalid arguments.
 
+### Listing pages
+
+When no saved template fits a page and the page links to at least 4 pages that share one URL shape (a category, archive or search page), turbo-crawl asks the agent if the page is a listing. For a listing, it saves a listing template in `data/<domain>/listings/` and prints the links instead of fields:
+
+```json
+{
+  "ok": true,
+  "kind": "listing",
+  "itemUrls": ["https://shop.example/products/clock-1", "https://shop.example/products/watch-2"],
+  "paginationUrls": ["https://shop.example/category/clocks?page=2"],
+  ...
+}
+```
+
+A page with fields prints `"kind": "item"`.
+
 ### Environment variables
 
 | Variable | Purpose |
