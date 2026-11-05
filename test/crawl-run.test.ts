@@ -19,7 +19,8 @@ import type { Page } from "playwright";
 import {
   createDomainStore,
   readJsonFile,
-  readTemplateForPattern,
+  listTemplatesForDomain,
+  addPatternToTemplate,
   savePageArtifacts,
   saveTemplate,
 } from "../src/core/domain-store.ts";
@@ -117,7 +118,18 @@ function createTemplateExtractionResult(
     payload: {
       title: "Fixture",
     },
-    fieldResults: {},
+    fieldResults: {
+      title: {
+        fieldName: "title",
+        type: "string",
+        rawValue: "Fixture",
+        normalizedValue: "Fixture",
+        selectorUsed: { kind: "css", selector: "h1", attribute: "textContent", score: 90, reusable: true },
+        confidence: 0.9,
+        warnings: [],
+        candidatesTried: [],
+      },
+    },
     confidence: 90,
     templateId: "template_fixture",
     usedTemplate: true,
@@ -141,41 +153,71 @@ describe("crawl start stub wiring", () => {
     expect(harness.authorCalls[0]?.skeleton).toBe("body\n  h1 \"Fixture\"");
     expect(harness.authorCalls[0]?.schema).toEqual({ title: "string" });
 
-    const savedTemplate = await readTemplateForPattern(harness.store, "/final", { title: "string" });
-    expect(savedTemplate?.id).toBe("template_fixture");
-    expect(outcome.templatePath).not.toBeNull();
+    const saved = (await listTemplatesForDomain(harness.store)).candidates.map(candidate => candidate.template.id);
+    expect(saved).toEqual(["template_fixture"]);
+    expect(outcome.templateFit).toMatchObject({ templateId: "template_fixture", matchedPattern: true });
 
     const transcript = await readJsonFile<{ provider: string; llmUsed: boolean }>(
-      path.join(outcome.artifactFolder, "packet.llm.json"),
+      path.join(outcome.artifactFolder!, "packet.llm.json"),
     );
     expect(transcript).toMatchObject({ provider: "claude", llmUsed: true });
   });
 
-  it("reuses a saved template for the same pattern and fields without calling the agent", async () => {
+  it("extracts with a saved template that fits, without resolving a provider", async () => {
     const harness = await createHarness();
     await saveTemplate(harness.store, createTemplate());
 
     const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
 
-    expect(outcome.path).toBe("existing-template");
-    expect(outcome.llmUsed).toBe(false);
+    expect(outcome).toMatchObject({ path: "template-reuse", llmUsed: false, stale: false, missing: [] });
+    expect(outcome.templateFit.matchedPattern).toBe(true);
     expect(harness.authorCalls).toHaveLength(0);
     expect(harness.providerResolutions).toBe(0);
   });
 
-  it("uses a template-reuse input without resolving a provider or calling the agent", async () => {
+  it("records the page's URL pattern on a template that fits a new URL shape", async () => {
     const harness = await createHarness();
-    const template = createTemplate();
+    await saveTemplate(harness.store, { ...createTemplate(), urlPatterns: ["/news/:slug"] });
 
-    const outcome = await startCrawl(
-      { target: "https://example.com/final", source: "template-reuse", template },
-      harness.options,
-      harness.deps,
-    );
+    const outcome = await startCrawl({ target: "https://example.com/final", schema: {} }, harness.options, harness.deps);
 
-    expect(outcome.path).toBe("template-reuse");
-    expect(harness.authorCalls).toHaveLength(0);
+    expect(outcome.templateFit.matchedPattern).toBe(false);
+    const [saved] = (await listTemplatesForDomain(harness.store)).candidates;
+    expect(saved?.template.urlPatterns).toEqual(["/news/:slug", "/final"]);
+  });
+
+  it("fails with TEMPLATE_MISSING and never resolves a provider when authoring is off", async () => {
+    const harness = await createHarness();
+
+    const error = await startCrawl(fieldsInput({ title: "string" }), { ...harness.options, authoring: false }, harness.deps)
+      .catch(caught => caught);
+
+    expect(error).toBeInstanceOf(CrawlFailure);
+    expect(error.code).toBe("TEMPLATE_MISSING");
+    expect(error.policy).toMatchObject({ httpStatus: 200 });
     expect(harness.providerResolutions).toBe(0);
+  });
+
+  it("returns a stale result when the template for this pattern no longer fits", async () => {
+    const harness = await createHarness({
+      extractResult: createTemplateExtractionResult({ payload: { title: null }, fieldResults: {} }),
+    });
+    await saveTemplate(harness.store, createTemplate());
+
+    const outcome = await startCrawl(fieldsInput({ title: "string" }), { ...harness.options, authoring: false }, harness.deps);
+
+    expect(outcome).toMatchObject({ path: "stale-template", stale: true, missing: ["title"], llmUsed: false });
+    expect(outcome.warnings.join("\n")).toContain("may have changed");
+  });
+
+  it("writes no page artifacts when artifacts are off", async () => {
+    const harness = await createHarness();
+    await saveTemplate(harness.store, createTemplate());
+
+    const outcome = await startCrawl(fieldsInput({ title: "string" }), { ...harness.options, writeArtifacts: false }, harness.deps);
+
+    expect(outcome.artifactFolder).toBeNull();
+    expect(await Bun.file(path.join(harness.store.packetsPath)).exists()).toBe(false);
   });
 
   it("asks the agent to suggest fields when the schema is empty, then uses them", async () => {
@@ -254,7 +296,7 @@ describe("crawl start stub wiring", () => {
 });
 
 function fieldsInput(schema: Record<string, "string" | "number">): CrawlStartInput {
-  return { target: "https://example.com/final", source: "fields", schema };
+  return { target: "https://example.com/final", schema };
 }
 
 async function createHarness(config: {
@@ -262,6 +304,7 @@ async function createHarness(config: {
   pagePacket?: Partial<PagePacket>;
   renderError?: Error;
   robots?: Record<string, RobotsStatus>;
+  extractResult?: TemplateExtractionResult;
 } = {}) {
   const rootPath = await createTempDir();
   const store = createDomainStore({ targetUrl: "https://example.com/final", rootPath });
@@ -282,8 +325,8 @@ async function createHarness(config: {
       return handler({ page: {} as Page, pagePacket: { ...createPagePacket(), ...config.pagePacket } });
     },
     createDomainStore: (input) => createDomainStore({ ...input, rootPath }),
-    readTemplateForPattern: (inputStore, urlPattern, userSchema) =>
-      readTemplateForPattern(inputStore, urlPattern, userSchema),
+    listTemplatesForDomain,
+    addPatternToTemplate,
     saveTemplate,
     savePageArtifacts,
     async capturePageSkeleton() {
@@ -304,7 +347,7 @@ async function createHarness(config: {
       return { schema: { title: "string" }, fields: [{ name: "title", type: "string", description: "" }] };
     },
     async extractWithTemplate() {
-      return createTemplateExtractionResult();
+      return config.extractResult ?? createTemplateExtractionResult();
     },
   };
 

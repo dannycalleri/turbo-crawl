@@ -4,6 +4,7 @@ import {
   EXIT_OK,
   EXIT_RUNTIME,
   EXIT_ROBOTS_DISALLOWED,
+  EXIT_TEMPLATE_MISSING,
   EXIT_USAGE,
   normalizeTarget,
   parseFieldsOption,
@@ -16,10 +17,8 @@ import {
   ProviderSelectionError,
   type ResolvedProvider,
 } from "../src/core/llm-extractor/providers/resolveProvider.ts";
-import type { ReuseDiscoveryOptions } from "../src/core/reuse-discovery.ts";
 import { ConfigError } from "../src/core/config.ts";
 import { CrawlFailure } from "../src/core/policy/policy.ts";
-import type { ExtractionTemplate } from "../src/core/templating/types.ts";
 
 function usageError(run: () => unknown): UsageError {
   try {
@@ -63,27 +62,13 @@ describe("normalizeTarget", () => {
   });
 });
 
-const template: ExtractionTemplate = {
-  id: "template_fixture",
-  domain: "example.com",
-  urlPatterns: ["/products/:slug"],
-  schema: { title: "string" },
-  createdFromUrl: "https://example.com/products/one",
-  createdAt: "2026-10-11T10:00:00.000Z",
-  fields: {},
-};
-
-function discovery(overrides: Partial<ReuseDiscoveryOptions> = {}): ReuseDiscoveryOptions {
-  return { template: null, warnings: [], ambiguousTemplates: [], ...overrides };
-}
-
 function outcome(input: CrawlStartInput): CrawlOutcome {
   return {
     target: input.target,
     finalUrl: input.target,
     policy: { robots: "allowed", tdmReservation: null, tdmPolicyUrl: null, xRobotsTag: null, metaRobots: null, httpStatus: 200 },
     urlPattern: "/products/:slug",
-    path: input.source === "template-reuse" ? "template-reuse" : "authored",
+    path: "template-reuse",
     schema: { title: "string" },
     result: {
       payload: { title: "Clock" },
@@ -105,17 +90,19 @@ function outcome(input: CrawlStartInput): CrawlOutcome {
       llmUsed: false,
       warnings: [],
     },
-    llmUsed: input.source !== "template-reuse",
-    provider: input.source === "template-reuse" ? null : "claude",
-    templateId: "template_fixture",
-    templatePath: null,
+    llmUsed: false,
+    provider: null,
+    templateFit: { templateId: "template_fixture", templatePath: "data/example.com/templates/fixture.json", matchedPattern: true },
+    missing: [],
+    stale: false,
     artifactFolder: "data/example.com/pages/x",
     warnings: [],
   };
 }
 
 function harness(options: {
-  discovery?: ReuseDiscoveryOptions;
+  /** The fake crawl asks for the provider, as startCrawl does when it must author. */
+  authors?: boolean;
   resolveProvider?: () => ResolvedProvider;
   startCrawl?: (input: CrawlStartInput) => Promise<CrawlOutcome>;
   resolveUserAgent?: (option: string | undefined) => Promise<string>;
@@ -128,7 +115,6 @@ function harness(options: {
   let resolveCalls = 0;
 
   const deps: HeadlessDependencies = {
-    discover: async () => options.discovery ?? discovery(),
     resolveUserAgent: options.resolveUserAgent ?? (async option => option ?? "ConfigBot/1.0"),
     createRobotsChecker: userAgent => {
       robotsCheckers.push(userAgent);
@@ -149,6 +135,10 @@ function harness(options: {
       return {
         startCrawl: async input => {
           started.push(input);
+          if (options.authors) {
+            const provider = runnerOptionsArg.provider;
+            if (typeof provider === "function") provider();
+          }
           return options.startCrawl ? options.startCrawl(input) : outcome(input);
         },
       };
@@ -185,45 +175,62 @@ describe("runHeadlessCrawl", () => {
     expect(h.started).toEqual([]);
   });
 
-  it("exits 1 and lists the paths when several templates match", async () => {
+  it("exits 1 and lists the paths when several templates fit", async () => {
+    const paths = ["data/example.com/templates/a.json", "data/example.com/templates/b.json"];
     const h = harness({
-      discovery: discovery({
-        ambiguousTemplates: [
-          { path: "data/example.com/templates/a.json", template },
-          { path: "data/example.com/templates/b.json", template },
-        ],
-      }),
+      startCrawl: async () => {
+        throw new CrawlFailure("AMBIGUOUS_TEMPLATE", `More than one saved template fits:\n  ${paths.join("\n  ")}`, null, null, paths);
+      },
     });
 
     expect(await runHeadlessCrawl({ target }, h.deps)).toBe(EXIT_RUNTIME);
-    expect(JSON.parse(h.stdout)).toMatchObject({
-      ok: false,
-      code: "AMBIGUOUS_TEMPLATE",
-      templatePaths: ["data/example.com/templates/a.json", "data/example.com/templates/b.json"],
-    });
-    expect(h.stderr).toContain("data/example.com/templates/a.json");
+    expect(JSON.parse(h.stdout)).toMatchObject({ ok: false, code: "AMBIGUOUS_TEMPLATE", templatePaths: paths });
     expect(h.stderr).toContain("data/example.com/templates/b.json");
-    expect(h.started).toEqual([]);
   });
 
-  it("reuses a single saved template without resolving a provider", async () => {
-    const h = harness({ discovery: discovery({ template }) });
+  it("does not resolve a provider when the crawl does not need the agent", async () => {
+    const h = harness();
+
+    expect(await runHeadlessCrawl({ target, fields: "title:string" }, h.deps)).toBe(EXIT_OK);
+    expect(h.resolveCalls).toBe(0);
+    expect(h.started[0]).toEqual({ target, schema: { title: "string" }, require: undefined });
+  });
+
+  it("resolves the provider when the crawl needs the agent, and exposes its model", async () => {
+    const h = harness({ authors: true });
 
     expect(await runHeadlessCrawl({ target }, h.deps)).toBe(EXIT_OK);
-    expect(h.resolveCalls).toBe(0);
-    expect(h.started[0]).toMatchObject({ source: "template-reuse", template });
+    expect(h.resolveCalls).toBe(1);
+    expect(h.stderr).toContain("Using claude to write the template.");
+    expect(h.runnerOptions[0]?.model).toBeNull();
   });
 
-  it("authors a new template when --fields differs from the saved one", async () => {
-    const h = harness({ discovery: discovery({ template }) });
-
-    expect(await runHeadlessCrawl({ target, fields: "title:string,price:number" }, h.deps)).toBe(EXIT_OK);
-    expect(h.resolveCalls).toBe(1);
-    expect(h.started[0]).toMatchObject({
-      source: "fields",
-      schema: { title: "string", price: "number" },
+  it("turns authoring off with --no-author and exits 3 when no template fits", async () => {
+    const h = harness({
+      startCrawl: async () => {
+        throw new CrawlFailure("TEMPLATE_MISSING", "No saved template fits.", null);
+      },
     });
-    expect(h.stderr).toContain("Using claude to write the template.");
+
+    expect(await runHeadlessCrawl({ target, author: false }, h.deps)).toBe(EXIT_TEMPLATE_MISSING);
+    expect(h.runnerOptions[0]?.authoring).toBe(false);
+    expect(JSON.parse(h.stdout)).toMatchObject({ ok: false, code: "TEMPLATE_MISSING" });
+  });
+
+  it("passes --require and --no-artifacts to the crawl", async () => {
+    const h = harness();
+
+    expect(await runHeadlessCrawl({ target, fields: "headline:string,body:text", require: "headline, body", artifacts: false }, h.deps)).toBe(EXIT_OK);
+    expect(h.started[0]?.require).toEqual(["headline", "body"]);
+    expect(h.runnerOptions[0]).toMatchObject({ authoring: true, writeArtifacts: false });
+  });
+
+  it("exits 2 when --require names a field that --fields does not list", async () => {
+    const h = harness();
+
+    expect(await runHeadlessCrawl({ target, fields: "headline:string", require: "body" }, h.deps)).toBe(EXIT_USAGE);
+    expect(h.stderr).toContain("--require names body");
+    expect(h.started).toEqual([]);
   });
 
   it("passes the resolved user agent to the crawl", async () => {
@@ -293,8 +300,9 @@ describe("runHeadlessCrawl", () => {
     expect(h.started).toHaveLength(0);
   });
 
-  it("exits 1 when no provider is available", async () => {
+  it("exits 1 when the agent is needed but no provider is available", async () => {
     const h = harness({
+      authors: true,
       resolveProvider: () => {
         throw new ProviderSelectionError("No coding agent found: pass --provider lmstudio.", false);
       },
@@ -302,7 +310,6 @@ describe("runHeadlessCrawl", () => {
 
     expect(await runHeadlessCrawl({ target, fields: "title:string" }, h.deps)).toBe(EXIT_RUNTIME);
     expect(h.stderr).toContain("error: No coding agent found");
-    expect(h.started).toEqual([]);
   });
 
   it("tells the user to install Chromium when Playwright has no browser", async () => {
@@ -317,7 +324,7 @@ describe("runHeadlessCrawl", () => {
   });
 
   it("prints the data, per-field details and llmUsed as JSON", async () => {
-    const h = harness({ discovery: discovery({ template }) });
+    const h = harness();
 
     expect(await runHeadlessCrawl({ target }, h.deps)).toBe(EXIT_OK);
 

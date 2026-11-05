@@ -5,6 +5,7 @@ import type { UserSchema } from "./llm-extractor/types.ts";
 import type { ExtractionTemplate } from "./templating/types.ts";
 import { inferUrlPattern } from "./templating/inferUrlPattern.ts";
 import { buildPolicy, CrawlFailure, failureForStatus, type PolicyInfo } from "./policy/policy.ts";
+import { decideTemplate, missingFields, type TemplateTrial } from "./template-matcher/matchTemplate.ts";
 import type { RobotsChecker, RobotsStatus } from "./policy/robots.ts";
 import { extractWithTemplate } from "./template-extractor/extractWithTemplate.ts";
 import type { TemplateExtractionResult } from "./template-extractor/types.ts";
@@ -16,40 +17,44 @@ import {
 } from "./template-author/authorTemplate.ts";
 import { suggestSchema } from "./template-author/suggestSchema.ts";
 import {
+  addPatternToTemplate,
   createDomainStore,
-  readTemplateForPattern,
+  listTemplatesForDomain,
   savePageArtifacts,
   saveTemplate,
   type DomainStore,
+  type ReuseDiscoveryResult,
+  type TemplateMatchCandidate,
   type PageArtifacts,
   type PagePacketFolder,
   type TemplateArtifact,
 } from "./domain-store.ts";
 
-export type CrawlStartInput =
-  | {
-      target: string;
-      schema: UserSchema;
-      source: "fields";
-    }
-  | {
-      target: string;
-      template: ExtractionTemplate;
-      source: "template-reuse";
-    };
+export type CrawlStartInput = {
+  target: string;
+  schema: UserSchema;
+  require?: string[];
+};
+
+export type TemplateFit = {
+  templateId: string;
+  templatePath: string;
+  matchedPattern: boolean;
+};
 
 export type CrawlOutcome = {
   target: string;
   finalUrl: string;
   urlPattern: string;
-  path: "template-reuse" | "existing-template" | "authored";
+  path: "template-reuse" | "stale-template" | "authored";
   schema: UserSchema;
   result: TemplateExtractionResult;
   llmUsed: boolean;
   provider: LLMProvider["name"] | null;
-  templateId: string;
-  templatePath: string | null;
-  artifactFolder: string;
+  templateFit: TemplateFit;
+  missing: string[];
+  stale: boolean;
+  artifactFolder: string | null;
   policy: PolicyInfo;
   warnings: string[];
 };
@@ -66,6 +71,8 @@ export type CrawlOptions = {
   dataDir?: string;
   userAgent?: string;
   robots?: RobotsChecker | null;
+  authoring?: boolean;
+  writeArtifacts?: boolean;
   onProgress?: (message: string) => void;
 };
 
@@ -76,11 +83,11 @@ export type StartCrawlDependencies = {
     options?: BrowserSessionOptions,
   ): Promise<T>;
   createDomainStore(input: { targetUrl: string; rootPath?: string }): DomainStore;
-  readTemplateForPattern(
+  listTemplatesForDomain(
     store: DomainStore,
-    urlPattern: string,
-    userSchema: UserSchema,
-  ): Promise<ExtractionTemplate | null>;
+    options: { fields?: UserSchema },
+  ): Promise<ReuseDiscoveryResult<TemplateMatchCandidate>>;
+  addPatternToTemplate(templatePath: string, urlPattern: string): Promise<void>;
   saveTemplate(
     store: DomainStore,
     template: ExtractionTemplate,
@@ -102,7 +109,8 @@ export type StartCrawlDependencies = {
 export const defaultStartCrawlDependencies: StartCrawlDependencies = {
   withRenderedPage: (url, handler, options) => withRenderedPage(url, handler, options),
   createDomainStore,
-  readTemplateForPattern,
+  listTemplatesForDomain,
+  addPatternToTemplate,
   saveTemplate,
   savePageArtifacts,
   capturePageSkeleton,
@@ -126,7 +134,8 @@ export async function startCrawl(
   deps: StartCrawlDependencies = defaultStartCrawlDependencies,
 ): Promise<CrawlOutcome> {
   const progress = options.onProgress ?? (() => {});
-  let userSchema = input.source === "template-reuse" ? input.template.schema : input.schema;
+  let userSchema = input.schema;
+  const fieldsGiven = Object.keys(userSchema).length > 0;
   const store = deps.createDomainStore({ targetUrl: input.target, rootPath: options.dataDir });
 
   const robots = options.robots ?? null;
@@ -152,30 +161,69 @@ export async function startCrawl(
     if (statusFailure) throw statusFailure;
 
     const urlPattern = inferUrlPattern(finalUrl);
-    const reuseTemplate =
-      input.source === "template-reuse"
-        ? input.template
-        : Object.keys(userSchema).length === 0
-          ? null
-          : await deps.readTemplateForPattern(store, urlPattern, userSchema);
-    const base = () => ({ target: input.target, finalUrl, urlPattern, schema: userSchema, policy });
+    const listing = await deps.listTemplatesForDomain(store, { fields: fieldsGiven ? userSchema : undefined });
+    const listingWarnings = listing.warnings.map(warning => warning.message);
+    const trials: TemplateTrial[] = [];
+    for (const candidate of listing.candidates) {
+      trials.push({ candidate, result: await deps.extractWithTemplate({ page, pagePacket, template: candidate.template }) });
+    }
+    const decision = decideTemplate(trials, { urlPattern, require: input.require, fieldsGiven });
+    const saveArtifacts = (artifacts: PageArtifacts) =>
+      options.writeArtifacts === false ? Promise.resolve(null) : deps.savePageArtifacts(store, artifacts).then(folder => folder.path);
 
-    if (reuseTemplate) {
-      progress(`Extracting with the saved template for ${urlPattern}…`);
-      const result = await deps.extractWithTemplate({ page, pagePacket, template: reuseTemplate });
-      const folder = await deps.savePageArtifacts(store, { pagePacket, result });
+    if (decision.kind === "ambiguous") {
+      const paths = decision.trials.map(trial => trial.candidate.path);
+      throw new CrawlFailure(
+        "AMBIGUOUS_TEMPLATE",
+        `More than one saved template fits ${finalUrl}. Pass --fields to choose one, or remove all but one of:\n${paths.map(file => `  ${file}`).join("\n")}`,
+        policy,
+        null,
+        paths,
+      );
+    }
+
+    if (decision.kind === "fit" || decision.kind === "stale") {
+      const { candidate, result } = decision.trial;
+      const matchedPattern = decision.kind === "fit" ? decision.matchedPattern : true;
+      if (decision.kind === "fit" && !matchedPattern) {
+        await deps.addPatternToTemplate(candidate.path, urlPattern);
+      }
+      progress(decision.kind === "fit"
+        ? `Extracted with the saved template ${candidate.path}.`
+        : `The saved template for ${urlPattern} no longer fits this page; returning a stale result.`);
+      const missing = missingFields(candidate.template.schema, result.payload);
+      const warnings = [
+        ...listingWarnings,
+        ...(decision.kind === "stale"
+          ? [`The template ${candidate.path} no longer fits this page (${decision.reasons.join("; ")}); the page layout may have changed. Re-author it.`]
+          : []),
+        ...result.warnings,
+      ];
 
       return {
-        ...base(),
-        path: input.source === "template-reuse" ? "template-reuse" : "existing-template",
+        target: input.target,
+        finalUrl,
+        urlPattern,
+        schema: candidate.template.schema,
+        policy,
+        path: decision.kind === "fit" ? "template-reuse" : "stale-template",
         result,
         llmUsed: false,
         provider: null,
-        templateId: reuseTemplate.id,
-        templatePath: null,
-        artifactFolder: folder.path,
-        warnings: result.warnings,
+        templateFit: { templateId: candidate.template.id, templatePath: candidate.path, matchedPattern },
+        missing,
+        stale: decision.kind === "stale",
+        artifactFolder: await saveArtifacts({ pagePacket, result }),
+        warnings,
       };
+    }
+
+    if (options.authoring === false) {
+      throw new CrawlFailure(
+        "TEMPLATE_MISSING",
+        `No saved template fits ${finalUrl}, and authoring is off. Run turbo-crawl on this page with authoring on to write one.`,
+        policy,
+      );
     }
 
     const provider = typeof options.provider === "function" ? options.provider() : options.provider;
@@ -209,8 +257,8 @@ export async function startCrawl(
 
     const templateArtifact = await deps.saveTemplate(store, authored.template);
     const result = await deps.extractWithTemplate({ page, pagePacket, template: authored.template });
-    const warnings = [...authored.warnings, ...result.warnings];
-    const folder = await deps.savePageArtifacts(store, {
+    const warnings = [...listingWarnings, ...authored.warnings, ...result.warnings];
+    const artifactFolder = await saveArtifacts({
       pagePacket,
       llmResult: {
         provider: authored.provider,
@@ -224,14 +272,19 @@ export async function startCrawl(
     });
 
     return {
-      ...base(),
+      target: input.target,
+      finalUrl,
+      urlPattern,
+      schema: userSchema,
+      policy,
       path: "authored",
       result,
       llmUsed: true,
       provider: authored.provider,
-      templateId: authored.template.id,
-      templatePath: templateArtifact.path,
-      artifactFolder: folder.path,
+      templateFit: { templateId: authored.template.id, templatePath: templateArtifact.path, matchedPattern: true },
+      missing: missingFields(userSchema, result.payload),
+      stale: false,
+      artifactFolder,
       warnings,
     };
   }, { userAgent: options.userAgent }));

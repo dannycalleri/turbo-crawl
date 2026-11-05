@@ -27,6 +27,8 @@ const pages: Record<string, string> = {
   "/robots.txt": "User-agent: *\nDisallow: /private/\n",
   "/products/clock-1": productPage("Clock", "€49.00"),
   "/products/watch-2": productPage("Watch", "€120.50"),
+  "/2026/11/04/clock-3": productPage("Wall clock", "€30.00"),
+  "/about": "<!doctype html><html><head><title>About | Shop</title></head><body><main><p>We sell clocks.</p></main></body></html>",
 };
 
 const claudeEnvelope = {
@@ -160,6 +162,20 @@ describe("turbo-crawl CLI end to end", () => {
         provider: null,
         data: { title: "Watch", price: 120.5 },
       });
+
+      const newShape = await runCli(["crawl", `${base}/2026/11/04/clock-3`, "--data-dir", dataDir], env, workDir);
+      expect(newShape.code).toBe(0);
+      expect(JSON.parse(newShape.stdout)).toMatchObject({
+        path: "template-reuse",
+        urlPattern: "/:id/:id/:id/:slug",
+        llmUsed: false,
+        data: { title: "Wall clock", price: 30 },
+        templateFit: { matchedPattern: false },
+      });
+
+      const unknownLayout = await runCli(["crawl", `${base}/about`, "--data-dir", dataDir, "--no-author"], env, workDir);
+      expect(unknownLayout.code).toBe(3);
+      expect(JSON.parse(unknownLayout.stdout)).toMatchObject({ ok: false, code: "TEMPLATE_MISSING" });
 
       const calls = (await readFile(counterFile, "utf8")).trim().split("\n");
       expect(calls).toHaveLength(1);
