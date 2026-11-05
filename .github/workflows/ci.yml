@@ -1,19 +1,22 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  # Pushes to main run this workflow from release.yml, so a release waits for it.
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - run: bun install
@@ -29,11 +32,11 @@ jobs:
       matrix:
         node: [20, 22]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
       - run: bun install
@@ -46,11 +49,11 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - run: bun install
