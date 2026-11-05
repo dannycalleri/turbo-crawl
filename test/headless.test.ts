@@ -16,6 +16,7 @@ import {
   type ResolvedProvider,
 } from "../src/core/llm-extractor/providers/resolveProvider.ts";
 import type { ReuseDiscoveryOptions } from "../src/core/reuse-discovery.ts";
+import { ConfigError } from "../src/core/config.ts";
 import type { ExtractionTemplate } from "../src/core/templating/types.ts";
 
 function usageError(run: () => unknown): UsageError {
@@ -114,6 +115,7 @@ function harness(options: {
   discovery?: ReuseDiscoveryOptions;
   resolveProvider?: () => ResolvedProvider;
   startCrawl?: (input: CrawlStartInput) => Promise<CrawlOutcome>;
+  resolveUserAgent?: (option: string | undefined) => Promise<string>;
 } = {}) {
   let stdout = "";
   let stderr = "";
@@ -123,6 +125,7 @@ function harness(options: {
 
   const deps: HeadlessDependencies = {
     discover: async () => options.discovery ?? discovery(),
+    resolveUserAgent: options.resolveUserAgent ?? (async option => option ?? "ConfigBot/1.0"),
     resolveProvider: () => {
       resolveCalls += 1;
       return (
@@ -207,6 +210,26 @@ describe("runHeadlessCrawl", () => {
       schema: { title: "string", price: "number" },
     });
     expect(h.stderr).toContain("Using claude to write the template.");
+  });
+
+  it("passes the resolved user agent to the crawl", async () => {
+    const h = harness();
+
+    expect(await runHeadlessCrawl({ target, fields: "title:string" }, h.deps)).toBe(EXIT_OK);
+    expect(await runHeadlessCrawl({ target, fields: "title:string", userAgent: "CliBot/1.0" }, h.deps)).toBe(EXIT_OK);
+    expect(h.runnerOptions.map(options => options.userAgent)).toEqual(["ConfigBot/1.0", "CliBot/1.0"]);
+  });
+
+  it("exits 2 naming the file when a config file is invalid", async () => {
+    const h = harness({
+      resolveUserAgent: async () => {
+        throw new ConfigError("The config file /repo/turbo-crawl.json is not valid JSON: Unexpected token. Fix or remove it.");
+      },
+    });
+
+    expect(await runHeadlessCrawl({ target, fields: "title:string" }, h.deps)).toBe(EXIT_USAGE);
+    expect(h.stderr).toContain("/repo/turbo-crawl.json");
+    expect(h.started).toHaveLength(0);
   });
 
   it("exits 1 when no provider is available", async () => {

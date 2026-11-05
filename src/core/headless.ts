@@ -6,6 +6,7 @@ import {
   type ResolvedProvider,
 } from "./llm-extractor/providers/resolveProvider.ts";
 import { discoverTemplateReuse, type ReuseDiscoveryOptions } from "./reuse-discovery.ts";
+import { ConfigError, resolveUserAgent } from "./config.ts";
 
 export const EXIT_OK = 0;
 export const EXIT_RUNTIME = 1;
@@ -25,12 +26,14 @@ export type HeadlessCrawlInput = {
   model?: string;
   dataDir?: string;
   maxRepairs?: number;
+  userAgent?: string;
 };
 
 type Writer = { write(chunk: string): unknown };
 
 export type HeadlessDependencies = {
   discover(target: string, dataDir?: string): Promise<ReuseDiscoveryOptions>;
+  resolveUserAgent(option: string | undefined): Promise<string>;
   resolveProvider(input: { provider?: string; model?: string }): ResolvedProvider;
   createRunner(options: CrawlOptions): CrawlRunner;
   stdout: Writer;
@@ -39,6 +42,7 @@ export type HeadlessDependencies = {
 
 export const defaultHeadlessDependencies: HeadlessDependencies = {
   discover: discoverTemplateReuse,
+  resolveUserAgent: option => resolveUserAgent(option),
   resolveProvider,
   createRunner: options => createCrawlRunner(options),
   stdout: process.stdout,
@@ -147,6 +151,7 @@ export async function runHeadlessCrawl(
       throw new UsageError("--max-repairs must be a whole number of 0 or more.");
     }
 
+    const userAgent = await deps.resolveUserAgent(input.userAgent);
     const discovery = await deps.discover(target, input.dataDir);
 
     if (discovery.ambiguousTemplates.length > 1) {
@@ -179,6 +184,7 @@ export async function runHeadlessCrawl(
       },
       model: resolved?.model ?? null,
       maxRepairs: input.maxRepairs,
+      userAgent,
       dataDir: input.dataDir,
       onProgress: log,
     });
@@ -194,7 +200,11 @@ export async function runHeadlessCrawl(
     deps.stdout.write(`${JSON.stringify(formatOutcome(outcome), null, 2)}\n`);
     return EXIT_OK;
   } catch (error) {
-    if (error instanceof UsageError || (error instanceof ProviderSelectionError && error.usageError)) {
+    if (
+      error instanceof UsageError ||
+      error instanceof ConfigError ||
+      (error instanceof ProviderSelectionError && error.usageError)
+    ) {
       log(`error: ${error.message}`);
       return EXIT_USAGE;
     }
