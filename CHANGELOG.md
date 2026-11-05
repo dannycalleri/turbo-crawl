@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/dannycalleri/turbo-crawl/compare/v0.2.0...v0.3.0) (2026-11-05)
+
+
+### Features
+
+* follow a listing page to extract every item and its pagination ([9ed3b0c](https://github.com/dannycalleri/turbo-crawl/commit/9ed3b0cbdd7754bf6bd80f451ae0763ea5968de1))
+
+
+### Bug Fixes
+
+* keep pagination selectors that match nothing on the authoring page ([45befb7](https://github.com/dannycalleri/turbo-crawl/commit/45befb728e68adc185339772c4dda5aebf27bd5a))
+
 ## [0.2.0](https://github.com/dannycalleri/turbo-crawl/compare/v0.1.0...v0.2.0) (2026-11-05)
 
 
