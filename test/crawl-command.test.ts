@@ -47,7 +47,7 @@ describe("runCli crawl", () => {
     const { deps, headless } = createTestDependencies({ headlessExit: 3 });
 
     const exitCode = await runCli(
-      ["crawl", "https://example.com", "--fields", "title:string", "--provider", "codex", "--data-dir", "/tmp/tc", "--max-repairs", "1", "--user-agent", "CliBot/1.0", "--ignore-robots", "--json"],
+      ["crawl", "https://example.com", "--fields", "title:string", "--provider", "codex", "--data-dir", "/tmp/tc", "--max-repairs", "1", "--user-agent", "CliBot/1.0", "--ignore-robots", "--no-author", "--require", "title", "--no-artifacts", "--json"],
       deps,
     );
 
@@ -62,6 +62,9 @@ describe("runCli crawl", () => {
         maxRepairs: 1,
         userAgent: "CliBot/1.0",
         ignoreRobots: true,
+        author: false,
+        artifacts: false,
+        require: "title",
       },
     ]);
   });

@@ -10,7 +10,13 @@ export type PolicyInfo = {
   httpStatus: number | null;
 };
 
-export type CrawlFailureCode = "ROBOTS_DISALLOWED" | "BLOCKED" | "HTTP_ERROR" | "TIMEOUT";
+export type CrawlFailureCode =
+  | "ROBOTS_DISALLOWED"
+  | "BLOCKED"
+  | "HTTP_ERROR"
+  | "TIMEOUT"
+  | "TEMPLATE_MISSING"
+  | "AMBIGUOUS_TEMPLATE";
 
 export class CrawlFailure extends Error {
   constructor(
@@ -18,6 +24,7 @@ export class CrawlFailure extends Error {
     message: string,
     readonly policy: PolicyInfo | null,
     readonly retryAfterSeconds: number | null = null,
+    readonly templatePaths: string[] = [],
   ) {
     super(message);
     this.name = "CrawlFailure";

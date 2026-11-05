@@ -81,10 +81,6 @@ export type PageArtifacts = {
   result?: TemplateExtractionResult;
 };
 
-export type TemplateLookupOptions = {
-  onWarning?(warning: StorageError): void;
-};
-
 export type ResultListingOptions = {
   onWarning?(warning: StorageError): void;
 };
@@ -171,28 +167,9 @@ export async function saveTemplate(
   return { path: artifactPath, template };
 }
 
-export async function readTemplateForPattern(
+export async function listTemplatesForDomain(
   store: DomainStore,
-  urlPattern: string,
-  userSchema: UserSchema,
-  options: TemplateLookupOptions = {},
-): Promise<ExtractionTemplate | null> {
-  const result = await readTemplateCandidatesForPattern(store, urlPattern);
-
-  for (const warning of result.warnings) {
-    options.onWarning?.(warning);
-  }
-
-  return (
-    result.candidates.find((candidate) =>
-      schemasMatch(candidate.template.schema, userSchema),
-    )?.template ?? null
-  );
-}
-
-export async function readTemplateCandidatesForPattern(
-  store: DomainStore,
-  urlPattern: string,
+  options: { fields?: UserSchema } = {},
 ): Promise<ReuseDiscoveryResult<TemplateMatchCandidate>> {
   const warnings: ReuseWarning[] = [];
   const entries = await readDirectoryEntries(store.templatesPath);
@@ -218,9 +195,9 @@ export async function readTemplateCandidatesForPattern(
       continue;
     }
 
-    const template = validateTemplateArtifact(value, store, urlPattern, artifactPath, warnings);
+    const template = validateTemplateArtifact(value, store, artifactPath, warnings);
 
-    if (template === null) {
+    if (template === null || (options.fields && !schemasMatch(template.schema, options.fields))) {
       continue;
     }
 
@@ -231,6 +208,26 @@ export async function readTemplateCandidatesForPattern(
     candidates: candidates.sort((left, right) => left.path.localeCompare(right.path)),
     warnings,
   };
+}
+
+const patternWrites = new Map<string, Promise<void>>();
+
+export function addPatternToTemplate(templatePath: string, urlPattern: string): Promise<void> {
+  const previous = patternWrites.get(templatePath) ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(async () => {
+    const template = await readJsonFile<Record<string, unknown>>(templatePath);
+    const { urlPattern: legacy, ...rest } = template;
+    const patterns = Array.isArray(rest.urlPatterns)
+      ? (rest.urlPatterns as string[])
+      : typeof legacy === "string" ? [legacy] : [];
+    if (!patterns.includes(urlPattern)) {
+      await writeJsonFile(templatePath, { ...rest, urlPatterns: [...patterns, urlPattern] });
+    }
+  });
+  patternWrites.set(templatePath, next);
+  return next.finally(() => {
+    if (patternWrites.get(templatePath) === next) patternWrites.delete(templatePath);
+  });
 }
 
 export async function savePageArtifacts(
@@ -410,7 +407,6 @@ function schemasMatch(
 function validateTemplateArtifact(
   value: unknown,
   store: DomainStore,
-  urlPattern: string,
   artifactPath: string,
   warnings: ReuseWarning[],
 ): ExtractionTemplate | null {
@@ -445,10 +441,6 @@ function validateTemplateArtifact(
       artifactPath,
       `Template artifact does not match domain ${store.domain}.`,
     );
-    return null;
-  }
-
-  if (!urlPatterns.includes(urlPattern)) {
     return null;
   }
 

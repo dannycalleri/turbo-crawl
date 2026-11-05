@@ -10,6 +10,9 @@ export type CrawlArguments = {
   "max-repairs"?: number;
   "user-agent"?: string;
   "ignore-robots"?: boolean;
+  author?: boolean;
+  artifacts?: boolean;
+  require?: string;
   json?: boolean;
 };
 
@@ -23,7 +26,7 @@ export function createCrawlCommand(
 ): CommandModule<object, CrawlArguments> {
   return {
     command: "crawl <target>",
-    describe: "Extract structured data from a page. The first page of a URL pattern gets a template written by a coding agent; later pages reuse it without any model call.",
+    describe: "Extract structured data from a page. The first page of a layout gets a template written by a coding agent; later pages with the same layout reuse it without any model call, whatever their URL.",
     builder: (yargs) =>
       yargs
         .positional("target", {
@@ -60,6 +63,20 @@ export function createCrawlCommand(
           type: "boolean",
           describe: "Do not check robots.txt before rendering a page.",
         })
+        .option("author", {
+          type: "boolean",
+          default: true,
+          describe: "Let the agent write a template when none fits the page. --no-author never calls an agent and exits 3 instead.",
+        })
+        .option("require", {
+          type: "string",
+          describe: "Fields that must have a value for a saved template to fit, e.g. headline,body. Defaults to all of the template's fields.",
+        })
+        .option("artifacts", {
+          type: "boolean",
+          default: true,
+          describe: "Save the page packet and result under the data folder. --no-artifacts saves only templates.",
+        })
         .option("json", {
           type: "boolean",
           describe: "Accepted for compatibility. The result is always printed as JSON.",
@@ -83,6 +100,9 @@ export function createCrawlCommand(
           maxRepairs: argv["max-repairs"],
           userAgent: argv["user-agent"],
           ignoreRobots: argv["ignore-robots"],
+          author: argv.author,
+          artifacts: argv.artifacts,
+          require: argv.require,
         }),
       );
     },

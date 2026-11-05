@@ -10,8 +10,8 @@ import {
   getUrlPathHash,
   listResults,
   normalizeDomain,
-  readTemplateCandidatesForPattern,
-  readTemplateForPattern,
+  addPatternToTemplate,
+  listTemplatesForDomain,
   readJsonFile,
   savePageArtifacts,
   saveTemplate,
@@ -221,7 +221,7 @@ describe("domain store foundational helpers", () => {
     const second = await saveTemplate(store, { ...createTemplate(), id: "template_other", schema: { title: "string", sku: "string" } });
 
     expect(first.path).not.toBe(second.path);
-    const result = await readTemplateCandidatesForPattern(store, "/products/:slug");
+    const result = await listTemplatesForDomain(store);
     expect(result.candidates.map((candidate) => candidate.template.id).sort()).toEqual(["template_fixture", "template_other"]);
   });
 
@@ -242,24 +242,38 @@ describe("domain store foundational helpers", () => {
     expect(await readJsonFile<ExtractionTemplate>(artifact.path)).toEqual(template);
   });
 
-  it("reads an existing template only when URL pattern, domain, and schema match", async () => {
+  it("lists the domain's templates whatever their URL patterns, filtered by exact fields when given", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
       targetUrl: "https://marketplace.com/products/example",
       rootPath,
     });
     const template = createTemplate();
+    const article = { ...createTemplate(), id: "template_00000000000000aa", urlPatterns: ["/articles/:slug"] };
     await saveTemplate(store, template);
+    await saveTemplate(store, article);
 
-    await expect(
-      readTemplateForPattern(store, "/products/:slug", { title: "string" }),
-    ).resolves.toEqual(template);
-    await expect(
-      readTemplateForPattern(store, "/products/:slug", { price: "number" }),
-    ).resolves.toBeNull();
-    await expect(
-      readTemplateForPattern(store, "/articles/:slug", { title: "string" }),
-    ).resolves.toBeNull();
+    const all = (await listTemplatesForDomain(store)).candidates.map(candidate => candidate.template.id);
+    expect(all.sort()).toEqual([article.id, template.id].sort());
+    expect((await listTemplatesForDomain(store, { fields: { title: "string" } })).candidates).toHaveLength(2);
+    expect((await listTemplatesForDomain(store, { fields: { title: "text" } })).candidates).toHaveLength(0);
+    expect((await listTemplatesForDomain(store, { fields: { price: "number" } })).candidates).toHaveLength(0);
+  });
+
+  it("adds a URL pattern by rewriting the same file, once per pattern", async () => {
+    const rootPath = await createTempDir();
+    const store = createDomainStore({ targetUrl: "https://marketplace.com/products/example", rootPath });
+    const { path: templatePath } = await saveTemplate(store, createTemplate());
+
+    await Promise.all([
+      addPatternToTemplate(templatePath, "/p/:slug"),
+      addPatternToTemplate(templatePath, "/:id/:id/:id/:slug"),
+      addPatternToTemplate(templatePath, "/p/:slug"),
+    ]);
+
+    const saved = await readJsonFile<ExtractionTemplate>(templatePath);
+    expect(saved.urlPatterns).toEqual(["/products/:slug", "/p/:slug", "/:id/:id/:id/:slug"]);
+    expect((await listTemplatesForDomain(store)).candidates).toHaveLength(1);
   });
 
   it("reads a template written with a single urlPattern as a one-entry urlPatterns list", async () => {
@@ -268,7 +282,7 @@ describe("domain store foundational helpers", () => {
     const { urlPatterns: _patterns, ...current } = createTemplate();
     await writeJsonFile(path.join(store.templatesPath, "legacy.json"), { ...current, urlPattern: "/products/:slug" });
 
-    const result = await readTemplateCandidatesForPattern(store, "/products/:slug");
+    const result = await listTemplatesForDomain(store);
 
     expect(result.warnings).toEqual([]);
     expect(result.candidates.map(candidate => candidate.template)).toEqual([createTemplate()]);
@@ -286,7 +300,7 @@ describe("domain store foundational helpers", () => {
 
     await expect(stat(legacyPath)).rejects.toThrow();
     expect((await stat(otherPath)).isFile()).toBe(true);
-    expect((await readTemplateCandidatesForPattern(store, "/products/:slug")).candidates).toHaveLength(2);
+    expect((await listTemplatesForDomain(store)).candidates).toHaveLength(2);
   });
 
   it("names template files by template id, so field sets on one pattern sit side by side", async () => {
@@ -298,7 +312,7 @@ describe("domain store foundational helpers", () => {
 
     expect(path.basename(first.path)).toBe(`${createTemplate().id.replace(/^template_/, "")}.json`);
     expect(path.basename(second.path)).toBe("00000000000000ab.json");
-    expect((await readTemplateCandidatesForPattern(store, "/products/:slug")).candidates).toHaveLength(2);
+    expect((await listTemplatesForDomain(store)).candidates).toHaveLength(2);
   });
 
   it("discovers a valid matching template candidate by domain and URL pattern", async () => {
@@ -310,7 +324,7 @@ describe("domain store foundational helpers", () => {
     const template = createTemplate();
     await saveTemplate(store, template);
 
-    const result = await readTemplateCandidatesForPattern(store, "/products/:slug");
+    const result = await listTemplatesForDomain(store);
 
     expect(result).toEqual({
       candidates: [
@@ -335,7 +349,7 @@ describe("domain store foundational helpers", () => {
     };
     await saveTemplate(store, template);
 
-    const result = await readTemplateCandidatesForPattern(store, "/products/:slug");
+    const result = await listTemplatesForDomain(store);
 
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0]?.template).toEqual(template);
@@ -353,7 +367,7 @@ describe("domain store foundational helpers", () => {
     await ensureDomainStoreDirectories(store);
     await writeFile(artifactPath, "{not-json");
 
-    await expect(readTemplateCandidatesForPattern(store, "/products/:slug")).resolves.toEqual({
+    await expect(listTemplatesForDomain(store)).resolves.toEqual({
       candidates: [],
       warnings: [
         {
@@ -380,7 +394,7 @@ describe("domain store foundational helpers", () => {
       id: "template_duplicate",
     });
 
-    const result = await readTemplateCandidatesForPattern(store, "/products/:slug");
+    const result = await listTemplatesForDomain(store);
 
     expect(result.warnings).toEqual([]);
     expect(result.candidates.map((candidate) => candidate.path)).toEqual([
@@ -393,7 +407,7 @@ describe("domain store foundational helpers", () => {
     ].sort());
   });
 
-  it("finds the matching template among 500 others without reading packet contents", async () => {
+  it("lists 501 templates without reading packet contents", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
       targetUrl: "https://marketplace.com/products/example",
@@ -413,45 +427,10 @@ describe("domain store foundational helpers", () => {
     await saveTemplate(store, matchingTemplate);
     await writeFile(path.join(store.packetsPath, "broken-packet.json"), "{not-json");
 
-    const templateResult = await readTemplateCandidatesForPattern(store, "/products/:slug");
+    const templateResult = await listTemplatesForDomain(store);
 
-    expect(templateResult.candidates.map((candidate) => candidate.template.id)).toEqual([
-      matchingTemplate.id,
-    ]);
-  });
-
-  it("reports invalid template JSON as a recoverable warning and returns no template", async () => {
-    const rootPath = await createTempDir();
-    const store = createDomainStore({
-      targetUrl: "https://marketplace.com/products/example",
-      rootPath,
-    });
-    const artifactPath = path.join(store.templatesPath, "broken.json");
-    const warnings: unknown[] = [];
-
-    await ensureDomainStoreDirectories(store);
-    await writeFile(artifactPath, "{not-json");
-
-    await expect(
-      readTemplateForPattern(
-        store,
-        "/products/:slug",
-        { title: "string" },
-        {
-          onWarning(warning) {
-            warnings.push(warning);
-          },
-        },
-      ),
-    ).resolves.toBeNull();
-    expect(warnings).toEqual([
-      {
-        operation: "read-json",
-        path: artifactPath,
-        message: expect.stringContaining("Unable to read template JSON"),
-        recoverable: true,
-      },
-    ]);
+    expect(templateResult.warnings).toEqual([]);
+    expect(templateResult.candidates).toHaveLength(501);
   });
 
   it("saves page artifacts by URL path hash with optional LLM extraction", async () => {

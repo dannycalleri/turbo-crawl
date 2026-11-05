@@ -5,7 +5,6 @@ import {
   resolveProvider,
   type ResolvedProvider,
 } from "./llm-extractor/providers/resolveProvider.ts";
-import { discoverTemplateReuse, type ReuseDiscoveryOptions } from "./reuse-discovery.ts";
 import { ConfigError, resolveUserAgent } from "./config.ts";
 import { CrawlFailure } from "./policy/policy.ts";
 import { createRobotsChecker, type RobotsChecker } from "./policy/robots.ts";
@@ -13,6 +12,7 @@ import { createRobotsChecker, type RobotsChecker } from "./policy/robots.ts";
 export const EXIT_OK = 0;
 export const EXIT_RUNTIME = 1;
 export const EXIT_USAGE = 2;
+export const EXIT_TEMPLATE_MISSING = 3;
 export const EXIT_ROBOTS_DISALLOWED = 4;
 
 export class UsageError extends Error {
@@ -31,12 +31,14 @@ export type HeadlessCrawlInput = {
   maxRepairs?: number;
   userAgent?: string;
   ignoreRobots?: boolean;
+  author?: boolean;
+  artifacts?: boolean;
+  require?: string;
 };
 
 type Writer = { write(chunk: string): unknown };
 
 export type HeadlessDependencies = {
-  discover(target: string, dataDir?: string): Promise<ReuseDiscoveryOptions>;
   resolveUserAgent(option: string | undefined): Promise<string>;
   createRobotsChecker(userAgent: string): RobotsChecker;
   resolveProvider(input: { provider?: string; model?: string }): ResolvedProvider;
@@ -46,7 +48,6 @@ export type HeadlessDependencies = {
 };
 
 export const defaultHeadlessDependencies: HeadlessDependencies = {
-  discover: discoverTemplateReuse,
   resolveUserAgent: option => resolveUserAgent(option),
   createRobotsChecker: userAgent => createRobotsChecker({ userAgent }),
   resolveProvider,
@@ -99,10 +100,22 @@ export function parseFieldsOption(raw: string): UserSchema {
   return schema;
 }
 
-function sameFieldNames(left: UserSchema, right: UserSchema): boolean {
-  const a = Object.keys(left).sort().join(",");
-  const b = Object.keys(right).sort().join(",");
-  return a === b;
+export function parseRequireOption(raw: string, fields: UserSchema | null): string[] {
+  const names = raw.split(",").map(part => part.trim()).filter(Boolean);
+  if (names.length === 0) {
+    throw new UsageError("--require is empty. List field names separated by commas, e.g. --require headline,body.");
+  }
+  const unknown = fields ? names.filter(name => !(name in fields)) : [];
+  if (unknown.length > 0) {
+    throw new UsageError(`--require names ${unknown.join(", ")}, which --fields does not list.`);
+  }
+  return names;
+}
+
+function exitCodeFor(error: CrawlFailure): number {
+  if (error.code === "ROBOTS_DISALLOWED") return EXIT_ROBOTS_DISALLOWED;
+  if (error.code === "TEMPLATE_MISSING") return EXIT_TEMPLATE_MISSING;
+  return EXIT_RUNTIME;
 }
 
 export function formatOutcome(outcome: CrawlOutcome): unknown {
@@ -130,8 +143,9 @@ export function formatOutcome(outcome: CrawlOutcome): unknown {
     ),
     policy: outcome.policy,
     warnings: outcome.warnings,
-    templateId: outcome.templateId,
-    templatePath: outcome.templatePath,
+    missing: outcome.missing,
+    stale: outcome.stale,
+    templateFit: outcome.templateFit,
     artifactFolder: outcome.artifactFolder,
   };
 }
@@ -164,51 +178,30 @@ export async function runHeadlessCrawl(
       throw new UsageError("--max-repairs must be a whole number of 0 or more.");
     }
 
+    const require = input.require === undefined ? undefined : parseRequireOption(input.require, fields);
     const userAgent = await deps.resolveUserAgent(input.userAgent);
-    const discovery = await deps.discover(target, input.dataDir);
 
-    if (discovery.ambiguousTemplates.length > 1) {
-      const paths = discovery.ambiguousTemplates.map(candidate => candidate.path);
-      return fail(
-        EXIT_RUNTIME,
-        "AMBIGUOUS_TEMPLATE",
-        `More than one saved template matches this URL pattern; remove all but one:\n${paths.map(file => `  ${file}`).join("\n")}`,
-        { templatePaths: paths },
-      );
-    }
-
-    for (const warning of discovery.warnings) {
-      log(`warning: ${warning.message}`);
-    }
-
-    const reusable =
-      discovery.template && (fields === null || sameFieldNames(discovery.template.schema, fields))
-        ? discovery.template
-        : null;
-
-    // Resolve the provider before rendering, unless a saved template makes it unnecessary.
     let resolved: ResolvedProvider | null = null;
-    if (!reusable) {
-      resolved = deps.resolveProvider({ provider: input.provider, model: input.model });
-      log(`Using ${resolved.name}${resolved.model ? ` (${resolved.model})` : ""} to write the template.`);
-    }
-
     const runner = deps.createRunner({
       provider: () => {
-        resolved ??= deps.resolveProvider({ provider: input.provider, model: input.model });
+        resolved = deps.resolveProvider({ provider: input.provider, model: input.model });
+        log(`Using ${resolved.name}${resolved.model ? ` (${resolved.model})` : ""} to write the template.`);
         return resolved.create();
       },
-      model: resolved?.model ?? null,
+      // Read by startCrawl only after it has asked for the provider.
+      get model() {
+        return resolved?.model ?? null;
+      },
       maxRepairs: input.maxRepairs,
       userAgent,
       robots: input.ignoreRobots ? null : deps.createRobotsChecker(userAgent),
+      authoring: input.author !== false,
+      writeArtifacts: input.artifacts !== false,
       dataDir: input.dataDir,
       onProgress: log,
     });
 
-    const outcome = reusable
-      ? await runner.startCrawl({ target, source: "template-reuse", template: reusable })
-      : await runner.startCrawl({ target, source: "fields", schema: fields ?? {} });
+    const outcome = await runner.startCrawl({ target, schema: fields ?? {}, require });
 
     for (const warning of outcome.warnings) {
       log(`warning: ${warning}`);
@@ -226,8 +219,9 @@ export async function runHeadlessCrawl(
     }
 
     if (error instanceof CrawlFailure) {
-      return fail(error.code === "ROBOTS_DISALLOWED" ? EXIT_ROBOTS_DISALLOWED : EXIT_RUNTIME, error.code, error.message, {
+      return fail(exitCodeFor(error), error.code, error.message, {
         policy: error.policy,
+        ...(error.code === "AMBIGUOUS_TEMPLATE" ? { templatePaths: error.templatePaths } : {}),
         ...(error.code === "BLOCKED" ? { retryAfterSeconds: error.retryAfterSeconds } : {}),
       });
     }
