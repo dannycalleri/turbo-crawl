@@ -71,6 +71,27 @@ describe("buildAuthorResponseSchema", () => {
 });
 
 describe("parseAuthorResponse", () => {
+  it("accepts attr:<name> for any HTML attribute and drops a malformed attr:", () => {
+    const parsed = parseAuthorResponse(
+      {
+        fields: {
+          title: {
+            selectors: [
+              { kind: "css", selector: "time.published", attribute: "attr:datetime" },
+              { kind: "css", selector: "time", attribute: "attr:" },
+              { kind: "css", selector: "time", attribute: "attr:data value" },
+            ],
+            expectedSample: null,
+          },
+          price: { selectors: [css(".price")] },
+        },
+      },
+      schema,
+    );
+
+    expect(parsed.fields.title!.selectors).toEqual([{ kind: "css", selector: "time.published", attribute: "attr:datetime" }]);
+  });
+
   it("drops malformed selectors and keeps at most four per field", () => {
     const parsed = parseAuthorResponse(
       {

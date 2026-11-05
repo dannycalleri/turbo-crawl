@@ -6,12 +6,13 @@ import type { SelectorValidation } from "./validateSelectors";
 
 export const AUTHOR_SELECTOR_KINDS = ["jsonld", "meta", "css", "table"] as const;
 export const AUTHOR_ATTRIBUTES = ["textContent", "href", "src", "content", "json"] as const;
+const ANY_ATTRIBUTE = /^attr:[A-Za-z_:][-A-Za-z0-9_:.]*$/;
 export const MAX_SELECTORS_PER_FIELD = 4;
 
 export type AuthoredSelector = {
     kind: typeof AUTHOR_SELECTOR_KINDS[number];
     selector: string;
-    attribute: typeof AUTHOR_ATTRIBUTES[number];
+    attribute: typeof AUTHOR_ATTRIBUTES[number] | `attr:${string}`;
 };
 
 export type AuthoredField = {
@@ -39,11 +40,13 @@ const SYSTEM_PROMPT = [
 const SELECTOR_RULES = `Selector formats (kind → selector → attribute):
 - jsonld → "<nodeId>:$.path.to.value" using a nodeId listed under JSON-LD, e.g. "jsonld_01:$.offers.price" → "json"
 - meta → "meta[property='og:title']@content", "meta[name='description']@content", "link[rel='canonical']@href", or "@currentUrl" → "content" (use "href" for the canonical link)
-- css → a CSS selector for document.querySelector → "textContent", "href", "src" or "content"
+- css → a CSS selector for document.querySelector → "textContent", "href", "src", "content", or "attr:<name>" for any other attribute (e.g. "attr:datetime" on a time element)
 - table → "label=<exact row label>" reads the cell next to that label in an HTML table → "textContent"
 Rules:
 - Give 1 to ${MAX_SELECTORS_PER_FIELD} selectors per field, most reliable first. Different kinds as fallbacks are good.
 - Prefer JSON-LD and meta when they hold the value; then semantic CSS (itemprop, data-* attributes, ids, meaningful class names).
+- When the value is visible on the page, include at least one css selector for it: the template is matched to pages by its page-body selectors.
+- For date fields, prefer machine-readable dates: JSON-LD datePublished, meta[property='article:published_time']@content, or time[datetime] with "attr:datetime". Dates written in words are not accepted.
 - Never use :nth-child/:nth-of-type positions, generated class names, or text that only appears on this page.
 - The selector must point at the element holding just the value (e.g. the price element, not its whole card).
 - expectedSample is the raw text you expect the first selector to read on this page, or null if the field is absent.`;
@@ -55,7 +58,10 @@ export function buildAuthorResponseSchema(schema: UserSchema): unknown {
         properties: {
             kind: { type: "string", enum: [...AUTHOR_SELECTOR_KINDS] },
             selector: { type: "string" },
-            attribute: { type: "string", enum: [...AUTHOR_ATTRIBUTES] },
+            attribute: {
+                type: "string",
+                description: `One of ${AUTHOR_ATTRIBUTES.join(", ")}, or attr:<name> for any other HTML attribute.`,
+            },
         },
         required: ["kind", "selector", "attribute"],
         additionalProperties: false,
@@ -88,7 +94,7 @@ export function buildAuthorResponseSchema(schema: UserSchema): unknown {
 const authoredSelectorSchema = z.object({
     kind: z.enum(AUTHOR_SELECTOR_KINDS),
     selector: z.string().min(1),
-    attribute: z.enum(AUTHOR_ATTRIBUTES),
+    attribute: z.union([z.enum(AUTHOR_ATTRIBUTES), z.string().regex(ANY_ATTRIBUTE).transform(value => value as `attr:${string}`)]),
 });
 
 export function parseAuthorResponse(raw: unknown, schema: UserSchema): AuthorResponse {

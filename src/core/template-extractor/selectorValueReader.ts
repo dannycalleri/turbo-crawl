@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
 import type { PagePacket } from "../types";
 import type { SelectorCandidate } from "../templating/types";
+import type { FieldType } from "../llm-extractor/types";
 
 export type SelectorValueReadResult = {
     rawValue: string | null;
@@ -11,6 +12,7 @@ export async function readSelectorValue(input: {
     page: Page;
     pagePacket: PagePacket;
     selector: SelectorCandidate;
+    fieldType?: FieldType;
 }): Promise<SelectorValueReadResult> {
     switch (input.selector.kind) {
         case "jsonld":
@@ -21,7 +23,7 @@ export async function readSelectorValue(input: {
 
         case "css":
         case "xpath":
-            return readDomSelector(input.page, input.selector);
+            return readDomSelector(input.page, input.selector, input.fieldType);
 
         case "table":
             return readTableSelector(input.pagePacket, input.selector);
@@ -317,7 +319,8 @@ export function readJsonPath(data: unknown, path: string): unknown {
 
 async function readDomSelector(
     page: Page,
-    selector: SelectorCandidate
+    selector: SelectorCandidate,
+    fieldType?: FieldType,
 ): Promise<SelectorValueReadResult> {
     const warnings: string[] = [];
     const locatorSelector =
@@ -340,6 +343,10 @@ async function readDomSelector(
     }
 
     const first = locator.first();
+    if (fieldType === "text" && selector.attribute === "textContent") {
+        return { rawValue: normalizeBlockText(await first.evaluate(readCleanText)), warnings };
+    }
+
     const rawValue = await readDomAttribute(first, selector.attribute);
 
     return {
@@ -358,6 +365,10 @@ async function readDomAttribute(
 
     if (attribute === "content") {
         return locator.getAttribute("content");
+    }
+
+    if (attribute.startsWith("attr:")) {
+        return locator.getAttribute(attribute.slice("attr:".length));
     }
 
     if (attribute === "href" || attribute === "src") {
@@ -431,6 +442,47 @@ function stringifyRawValue(value: unknown): string | null {
     }
 
     return normalizeRawValue(JSON.stringify(value));
+}
+
+// Runs in the browser. Reads a copy, so text hidden behind a "read more" toggle is kept
+// while scripts and styles are dropped.
+function readCleanText(element: Element): string {
+    const BLOCKS = new Set([
+        "ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "DD", "DIV", "DL", "DT", "FIGCAPTION", "FIGURE", "FOOTER",
+        "H1", "H2", "H3", "H4", "H5", "H6", "HEADER", "HR", "LI", "MAIN", "OL", "P", "PRE", "SECTION", "TABLE", "TR", "UL",
+    ]);
+    const copy = element.cloneNode(true) as Element;
+    copy.querySelectorAll("script, style, noscript, template").forEach(node => node.remove());
+
+    let text = "";
+    const walk = (node: Node): void => {
+        if (node.nodeType === Node.TEXT_NODE) {
+            text += node.nodeValue ?? "";
+            return;
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) return;
+        const tag = (node as Element).tagName;
+        if (tag === "BR") {
+            text += "\n";
+            return;
+        }
+        node.childNodes.forEach(walk);
+        if (BLOCKS.has(tag)) text += "\n";
+        else if (tag === "TD" || tag === "TH") text += " ";
+    };
+    walk(copy);
+    return text;
+}
+
+function normalizeBlockText(value: string): string | null {
+    const normalized = value
+        .split("\n")
+        .map(line => line.replace(/\s+/g, " ").trim())
+        .join("\n")
+        .replace(/\n{2,}/g, "\n")
+        .trim();
+
+    return normalized || null;
 }
 
 function normalizeRawValue(value: string | null | undefined): string | null {

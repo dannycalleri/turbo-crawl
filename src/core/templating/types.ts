@@ -10,7 +10,7 @@ export type SelectorKind =
 export type SelectorCandidate = {
     kind: SelectorKind;
     selector: string;
-    attribute: "textContent" | "href" | "src" | "content" | "json";
+    attribute: "textContent" | "href" | "src" | "content" | "json" | `attr:${string}`;
     score: number;
     reusable: boolean;
 };

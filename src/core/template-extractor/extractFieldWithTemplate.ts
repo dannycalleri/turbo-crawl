@@ -25,6 +25,7 @@ export async function extractFieldWithTemplate(input: {
             page: input.page,
             pagePacket: input.pagePacket,
             selector,
+            fieldType: input.field.type,
         });
 
         const valueForNormalization = selectLearnedNumberValue({
