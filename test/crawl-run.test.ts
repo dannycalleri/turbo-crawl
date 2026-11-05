@@ -4,6 +4,8 @@ import { tmpdir } from "os";
 import path from "path";
 import {
   startCrawl,
+  type CrawlOutcome,
+  type ItemOutcome,
   type CrawlOptions,
   type CrawlStartInput,
   type StartCrawlDependencies,
@@ -22,8 +24,11 @@ import {
   listTemplatesForDomain,
   addPatternToTemplate,
   savePageArtifacts,
+  saveListingTemplate,
   saveTemplate,
 } from "../src/core/domain-store.ts";
+import type { LinkGroup } from "../src/core/extraction/links.ts";
+import type { ClassifyPageInput, PageClassification } from "../src/core/template-author/classifyPage.ts";
 
 const tempDirs: string[] = [];
 
@@ -143,7 +148,7 @@ describe("crawl start stub wiring", () => {
   it("authors a template with the agent, saves it, and extracts through it", async () => {
     const harness = await createHarness();
 
-    const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
+    const outcome = asItem(await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps));
 
     expect(outcome.path).toBe("authored");
     expect(outcome.llmUsed).toBe(true);
@@ -223,7 +228,7 @@ describe("crawl start stub wiring", () => {
   it("asks the agent to suggest fields when the schema is empty, then uses them", async () => {
     const harness = await createHarness();
 
-    const outcome = await startCrawl(fieldsInput({}), harness.options, harness.deps);
+    const outcome = asItem(await startCrawl(fieldsInput({}), harness.options, harness.deps));
 
     expect(harness.suggestCalls).toBe(1);
     expect(outcome.schema).toEqual({ title: "string" });
@@ -280,7 +285,7 @@ describe("crawl start stub wiring", () => {
       pagePacket: { response: { status: 200, xRobotsTag: "noai", tdmReservation: "1", tdmPolicy: null, retryAfter: null } },
     });
 
-    const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
+    const outcome = asItem(await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps));
 
     expect(outcome.policy).toMatchObject({ robots: "allowed", tdmReservation: true, xRobotsTag: "noai", httpStatus: 200 });
     expect(outcome.result.payload).toEqual({ title: "Fixture" });
@@ -295,6 +300,76 @@ describe("crawl start stub wiring", () => {
   });
 });
 
+describe("listing pages", () => {
+  const productGroup: LinkGroup = {
+    urlPattern: "/products/:slug",
+    count: 4,
+    samples: ["https://example.com/products/a-1", "https://example.com/products/b-2"],
+  };
+
+  it("returns the item and pagination links, saves the listing template, and authors no field template", async () => {
+    const classification: PageClassification = {
+      kind: "listing",
+      template: {
+        id: "listing_fixture",
+        kind: "listing",
+        domain: "example.com",
+        urlPatterns: ["/final"],
+        itemLinks: ["ul.grid a.card"],
+        nextPage: ["a[rel=next]"],
+        pageLinks: [],
+        itemUrlPattern: "/products/:slug",
+        createdFromUrl: "https://example.com/final",
+        createdAt: "2026-11-05T00:00:00.000Z",
+      },
+      itemUrls: ["https://example.com/products/a-1", "https://example.com/products/b-2"],
+      paginationUrls: ["https://example.com/final?page=2"],
+      calls: [],
+      provider: "claude",
+      warnings: [],
+    };
+    const harness = await createHarness({ linkGroups: [productGroup], classification });
+
+    const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
+
+    expect(outcome).toMatchObject({
+      kind: "listing",
+      itemUrls: classification.itemUrls,
+      paginationUrls: classification.paginationUrls,
+      llmUsed: true,
+      templateFit: { templateId: "listing_fixture", matchedPattern: true },
+    });
+    expect(harness.authorCalls).toHaveLength(0);
+    expect(harness.classifyCalls[0]?.groups).toEqual([productGroup]);
+    expect(await readJsonFile<unknown>(path.join(harness.store.listingsPath, "fixture.json"))).toEqual(classification.template);
+  });
+
+  it("authors a field template on the same page when the agent says it is a detail page", async () => {
+    const harness = await createHarness({ linkGroups: [productGroup], classification: { kind: "detail", calls: [] } });
+
+    const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
+
+    expect(outcome.kind).toBe("item");
+    expect(harness.classifyCalls).toHaveLength(1);
+    expect(harness.authorCalls).toHaveLength(1);
+    expect(harness.providerResolutions).toBe(1);
+  });
+
+  it("does not ask the agent for the page kind when no link group could hold the items", async () => {
+    const harness = await createHarness({ linkGroups: [{ ...productGroup, count: 3 }] });
+
+    await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
+
+    expect(harness.classifyCalls).toHaveLength(0);
+    expect(harness.authorCalls).toHaveLength(1);
+  });
+});
+
+function asItem(outcome: CrawlOutcome): ItemOutcome {
+  if (outcome.kind !== "item") throw new Error(`expected an item outcome, got ${outcome.kind}`);
+  return outcome;
+}
+
 function fieldsInput(schema: Record<string, "string" | "number">): CrawlStartInput {
   return { target: "https://example.com/final", schema };
 }
@@ -305,10 +380,13 @@ async function createHarness(config: {
   renderError?: Error;
   robots?: Record<string, RobotsStatus>;
   extractResult?: TemplateExtractionResult;
+  linkGroups?: LinkGroup[];
+  classification?: PageClassification;
 } = {}) {
   const rootPath = await createTempDir();
   const store = createDomainStore({ targetUrl: "https://example.com/final", rootPath });
   const authorCalls: AuthorTemplateInput[] = [];
+  const classifyCalls: ClassifyPageInput[] = [];
   const state = { providerResolutions: 0, suggestCalls: 0, renders: 0 };
   const robotsChecks: string[] = [];
   const provider: LLMProvider = {
@@ -346,6 +424,14 @@ async function createHarness(config: {
       state.suggestCalls += 1;
       return { schema: { title: "string" }, fields: [{ name: "title", type: "string", description: "" }] };
     },
+    async summarizeLinkGroups() {
+      return config.linkGroups ?? [];
+    },
+    async classifyPage(input) {
+      classifyCalls.push(input);
+      return config.classification ?? { kind: "detail", calls: [] };
+    },
+    saveListingTemplate,
     async extractWithTemplate() {
       return config.extractResult ?? createTemplateExtractionResult();
     },
@@ -355,6 +441,7 @@ async function createHarness(config: {
     store,
     deps,
     authorCalls,
+    classifyCalls,
     robotsChecks,
     get renders() {
       return state.renders;

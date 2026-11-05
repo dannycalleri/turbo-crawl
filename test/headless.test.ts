@@ -64,6 +64,7 @@ describe("normalizeTarget", () => {
 
 function outcome(input: CrawlStartInput): CrawlOutcome {
   return {
+    kind: "item",
     target: input.target,
     finalUrl: input.target,
     policy: { robots: "allowed", tdmReservation: null, tdmPolicyUrl: null, xRobotsTag: null, metaRobots: null, httpStatus: 200 },
@@ -330,6 +331,7 @@ describe("runHeadlessCrawl", () => {
 
     const printed = JSON.parse(h.stdout);
     expect(printed).toMatchObject({
+      kind: "item",
       url: target,
       path: "template-reuse",
       llmUsed: false,

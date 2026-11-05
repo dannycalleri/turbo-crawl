@@ -4,7 +4,7 @@ import path from "path";
 import type { CompactPagePacket } from "./compactPagePacket.ts";
 import { FIELD_TYPES, type FieldType, type LLMExtractionResult, type UserSchema } from "./llm-extractor/types.ts";
 import type { TemplateExtractionResult } from "./template-extractor/types.ts";
-import type { ExtractionTemplate } from "./templating/types.ts";
+import type { ExtractionTemplate, ListingTemplate } from "./templating/types.ts";
 import type { PagePacket } from "./types.ts";
 
 export type DomainStore = {
@@ -12,6 +12,7 @@ export type DomainStore = {
   domain: string;
   domainPath: string;
   templatesPath: string;
+  listingsPath: string;
   packetsPath: string;
 };
 
@@ -103,6 +104,7 @@ export function createDomainStore(input: DomainStoreInput): DomainStore {
     domain,
     domainPath,
     templatesPath: path.join(domainPath, "templates"),
+    listingsPath: path.join(domainPath, "listings"),
     packetsPath: path.join(domainPath, "packets"),
   };
 }
@@ -164,6 +166,20 @@ export async function saveTemplate(
   await writeJsonFile(artifactPath, template);
   await removeOtherFilesWithId(store, template.id, artifactPath);
 
+  return { path: artifactPath, template };
+}
+
+export type ListingTemplateArtifact = {
+  path: string;
+  template: ListingTemplate;
+};
+
+export async function saveListingTemplate(
+  store: DomainStore,
+  template: ListingTemplate,
+): Promise<ListingTemplateArtifact> {
+  const artifactPath = path.join(store.listingsPath, `${template.id.replace(/^listing_/, "")}.json`);
+  await writeJsonFile(artifactPath, template);
   return { path: artifactPath, template };
 }
 

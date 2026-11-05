@@ -119,8 +119,27 @@ function exitCodeFor(error: CrawlFailure): number {
 }
 
 export function formatOutcome(outcome: CrawlOutcome): unknown {
+  if (outcome.kind === "listing") {
+    return {
+      ok: true,
+      kind: "listing",
+      url: outcome.target,
+      finalUrl: outcome.finalUrl,
+      urlPattern: outcome.urlPattern,
+      llmUsed: outcome.llmUsed,
+      provider: outcome.provider,
+      itemUrls: outcome.itemUrls,
+      paginationUrls: outcome.paginationUrls,
+      policy: outcome.policy,
+      warnings: outcome.warnings,
+      templateFit: outcome.templateFit,
+      artifactFolder: outcome.artifactFolder,
+    };
+  }
+
   return {
     ok: true,
+    kind: "item",
     url: outcome.target,
     finalUrl: outcome.finalUrl,
     urlPattern: outcome.urlPattern,
