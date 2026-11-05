@@ -123,7 +123,9 @@ export function groupLinks(urls: string[], pageUrl: string): LinkGroup[] {
     for (const url of urls) {
         if (new URL(url).host !== host) continue;
         const pattern = inferUrlPattern(url);
-        groups.set(pattern, [...(groups.get(pattern) ?? []), url]);
+        const members = groups.get(pattern);
+        if (members) members.push(url);
+        else groups.set(pattern, [url]);
     }
     return [...groups.entries()]
         .map(([urlPattern, members]) => ({ urlPattern, count: members.length, samples: members.slice(0, 3) }))

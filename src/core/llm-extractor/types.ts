@@ -2,6 +2,10 @@ export const FIELD_TYPES = ["string", "number", "boolean", "date", "url", "text"
 
 export type FieldType = typeof FIELD_TYPES[number];
 
+export function isFieldType(value: unknown): value is FieldType {
+    return (FIELD_TYPES as readonly unknown[]).includes(value);
+}
+
 export type UserSchema = Record<string, FieldType>;
 
 export type FieldEvidence = {

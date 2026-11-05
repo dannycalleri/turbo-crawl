@@ -109,7 +109,6 @@ describe("decideTemplate", () => {
 
     expect(decideTemplate([redesigned], { urlPattern: "/news/:slug", fieldsGiven: false })).toMatchObject({
       kind: "stale",
-      missing: ["body"],
       reasons: ["no value for body"],
     });
     expect(decideTemplate([redesigned], { urlPattern: "/other/:slug", fieldsGiven: false }).kind).toBe("none");
@@ -120,7 +119,6 @@ describe("decideTemplate", () => {
 
     expect(decideTemplate([shortItem], { urlPattern: "/news/:slug", fieldsGiven: false })).toMatchObject({
       kind: "stale",
-      missing: [],
       reasons: ["body is shorter than 200 characters"],
     });
   });

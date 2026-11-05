@@ -215,10 +215,12 @@ export async function startCrawl(
     };
     const saveArtifacts = (artifacts: PageArtifacts) =>
       options.writeArtifacts === false ? Promise.resolve(null) : deps.savePageArtifacts(store, artifacts).then(folder => folder.path);
-    const savedListings = input.expect === "detail" ? { candidates: [], warnings: [] } : await deps.listListingTemplates(store);
-    const saved = input.expect === "listing"
-      ? { candidates: [], warnings: [] }
-      : await deps.listTemplatesForDomain(store, { fields: fieldsGiven ? userSchema : undefined });
+    const [savedListings, saved] = await Promise.all([
+      input.expect === "detail" ? { candidates: [], warnings: [] } : deps.listListingTemplates(store),
+      input.expect === "listing"
+        ? { candidates: [], warnings: [] }
+        : deps.listTemplatesForDomain(store, { fields: fieldsGiven ? userSchema : undefined }),
+    ]);
     const storeWarnings = [...savedListings.warnings, ...saved.warnings].map(warning => warning.message);
     const listingFit = await findListingFit(page, savedListings.candidates, urlPattern, deps);
     const listingOutcome = async ({ candidate, links, matchedPattern }: ListingFit): Promise<ListingOutcome> => {
@@ -244,10 +246,10 @@ export async function startCrawl(
       return listingOutcome(listingFit);
     }
 
-    const trials: TemplateTrial[] = [];
-    for (const candidate of saved.candidates) {
-      trials.push({ candidate, result: await deps.extractWithTemplate({ page, pagePacket, template: candidate.template }) });
-    }
+    const trials: TemplateTrial[] = await Promise.all(saved.candidates.map(async candidate => ({
+      candidate,
+      result: await deps.extractWithTemplate({ page, pagePacket, template: candidate.template }),
+    })));
     const decision = decideTemplate(trials, { urlPattern, require: input.require, fieldsGiven });
 
     if (decision.kind === "ambiguous") {
@@ -313,7 +315,7 @@ export async function startCrawl(
     const skeleton = await deps.capturePageSkeleton(page);
     const timeoutMs = resolveLlmTimeoutMs();
 
-    const groups = await deps.summarizeLinkGroups(page);
+    const groups = input.expect === "detail" ? [] : await deps.summarizeLinkGroups(page);
     const classification: PageClassification = input.expect === "listing" || (input.expect !== "detail" && looksLikeListing(groups, finalUrl))
       ? await deps.classifyPage({
           page,
@@ -365,7 +367,7 @@ export async function startCrawl(
 
     const provider = getProvider();
 
-    if (Object.keys(userSchema).length === 0) {
+    if (!fieldsGiven) {
       progress(`Asking ${provider.name} to suggest fields for this page…`);
       const suggestion = await deps.suggestSchema({
         pagePacket,

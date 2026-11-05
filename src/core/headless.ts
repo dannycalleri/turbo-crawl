@@ -1,12 +1,12 @@
 import { createCrawlRunner, type CrawlOptions, type CrawlOutcome, type CrawlRunner } from "./crawl-run.ts";
-import { FIELD_TYPES, type FieldType, type UserSchema } from "./llm-extractor/types.ts";
+import { FIELD_TYPES, isFieldType, type UserSchema } from "./llm-extractor/types.ts";
 import {
   ProviderSelectionError,
   resolveProvider,
   type ResolvedProvider,
 } from "./llm-extractor/providers/resolveProvider.ts";
 import { ConfigError, resolveUserAgent } from "./config.ts";
-import { CrawlFailure } from "./policy/policy.ts";
+import { CrawlFailure, failureDetails } from "./policy/policy.ts";
 import { createRobotsChecker, type RobotsChecker } from "./policy/robots.ts";
 
 export const EXIT_OK = 0;
@@ -83,14 +83,14 @@ export function parseFieldsOption(raw: string): UserSchema {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
       throw new UsageError(`Invalid field name "${name}". Use letters, digits and underscores.`);
     }
-    if (!(FIELD_TYPES as readonly string[]).includes(type)) {
+    if (!isFieldType(type)) {
       throw new UsageError(`Unknown type "${type}" for field "${name}". Allowed types: ${FIELD_TYPES.join(", ")}.`);
     }
     if (name in schema) {
       throw new UsageError(`Field "${name}" is listed twice in --fields.`);
     }
 
-    schema[name] = type as FieldType;
+    schema[name] = type;
   }
 
   if (Object.keys(schema).length === 0) {
@@ -238,11 +238,7 @@ export async function runHeadlessCrawl(
     }
 
     if (error instanceof CrawlFailure) {
-      return fail(exitCodeFor(error), error.code, error.message, {
-        policy: error.policy,
-        ...(error.code === "AMBIGUOUS_TEMPLATE" ? { templatePaths: error.templatePaths } : {}),
-        ...(error.code === "BLOCKED" ? { retryAfterSeconds: error.retryAfterSeconds } : {}),
-      });
+      return fail(exitCodeFor(error), error.code, error.message, failureDetails(error));
     }
 
     return fail(EXIT_RUNTIME, "RUNTIME_ERROR", describeRuntimeError(error));

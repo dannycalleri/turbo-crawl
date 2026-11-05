@@ -7,9 +7,9 @@ import {
   type CrawlRunner,
   type CrawlStartInput,
 } from "./core/crawl-run.ts";
-import { FIELD_TYPES } from "./core/llm-extractor/types.ts";
+import { FIELD_TYPES, isFieldType } from "./core/llm-extractor/types.ts";
 import { resolveProvider, type ResolvedProvider } from "./core/llm-extractor/providers/resolveProvider.ts";
-import { CrawlFailure } from "./core/policy/policy.ts";
+import { CrawlFailure, failureDetails } from "./core/policy/policy.ts";
 import { createRobotsChecker, type RobotsChecker } from "./core/policy/robots.ts";
 import { inferUrlPattern } from "./core/templating/inferUrlPattern.ts";
 import type {
@@ -43,6 +43,8 @@ const defaultLibraryDependencies: LibraryDependencies = {
 };
 
 FIELD_TYPES satisfies readonly FieldType[];
+// dist/lib.d.ts declares createCrawler by hand; this keeps that declaration true.
+createCrawler satisfies (options: CrawlerOptions) => Crawler;
 
 export function createCrawler(
   options: CrawlerOptions,
@@ -94,7 +96,7 @@ export function createCrawler(
   return {
     extract: (url, extractOptions = {}) => track(async () => {
       validateExtractOptions(extractOptions);
-      return run<ExtractResult>(runner, url, {
+      return run<ExtractResult>(runner, {
         target: url,
         schema: extractOptions.fields ?? {},
         require: extractOptions.require,
@@ -110,7 +112,7 @@ export function createCrawler(
       });
     }),
     links: url => track(() =>
-      run<LinksResult>(runner, url, { target: url, schema: {}, expect: "listing" }, outcome => {
+      run<LinksResult>(runner, { target: url, schema: {}, expect: "listing" }, outcome => {
         if (outcome.kind !== "listing") throw new Error(`expected a listing result for ${url}`);
         return {
           ...pageResult(outcome),
@@ -149,7 +151,6 @@ function createSemaphore(limit: number) {
 
 async function run<T>(
   runner: CrawlRunner,
-  url: string,
   input: CrawlStartInput,
   toResult: (outcome: CrawlOutcome) => T,
 ): Promise<T | CrawlError> {
@@ -160,12 +161,10 @@ async function run<T>(
     return {
       ok: false,
       schemaVersion: 1,
-      url,
+      url: input.target,
       code: error.code,
       message: error.message,
-      policy: error.policy,
-      ...(error.code === "BLOCKED" ? { retryAfterSeconds: error.retryAfterSeconds } : {}),
-      ...(error.code === "AMBIGUOUS_TEMPLATE" ? { templatePaths: error.templatePaths } : {}),
+      ...failureDetails(error),
     };
   }
 }
@@ -213,7 +212,7 @@ function validateOptions(options: CrawlerOptions): void {
 
 function validateExtractOptions(options: ExtractOptions): void {
   for (const [name, type] of Object.entries(options.fields ?? {})) {
-    if (!(FIELD_TYPES as readonly string[]).includes(type)) {
+    if (!isFieldType(type)) {
       throw new TypeError(`extract: field "${name}" has the unknown type "${type}". Use one of ${FIELD_TYPES.join(", ")}.`);
     }
   }

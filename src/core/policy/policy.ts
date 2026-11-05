@@ -31,6 +31,14 @@ export class CrawlFailure extends Error {
   }
 }
 
+export function failureDetails(error: CrawlFailure) {
+  return {
+    policy: error.policy,
+    ...(error.code === "BLOCKED" ? { retryAfterSeconds: error.retryAfterSeconds } : {}),
+    ...(error.code === "AMBIGUOUS_TEMPLATE" ? { templatePaths: error.templatePaths } : {}),
+  };
+}
+
 export function buildPolicy(pagePacket: PagePacket, robots: RobotsStatus): PolicyInfo {
   const meta = pagePacket.metadata.other;
   return {
