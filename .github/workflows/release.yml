@@ -6,14 +6,26 @@ on:
 
 permissions: {}
 
+# One release at a time: overlapping runs could tag one commit and publish another.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   release-please:
+    needs: ci
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
+      sha: ${{ steps.release.outputs.sha }}
     steps:
       - uses: googleapis/release-please-action@v5
         id: release
@@ -26,11 +38,13 @@ jobs:
       contents: read
       id-token: write # npm trusted publishing (OIDC) and provenance
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.sha }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
