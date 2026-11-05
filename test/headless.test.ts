@@ -67,6 +67,8 @@ function outcome(input: CrawlStartInput): CrawlOutcome {
     kind: "item",
     target: input.target,
     finalUrl: input.target,
+    canonicalUrl: null,
+    fetchedAt: "2026-11-05T00:00:00.000Z",
     policy: { robots: "allowed", tdmReservation: null, tdmPolicyUrl: null, xRobotsTag: null, metaRobots: null, httpStatus: 200 },
     urlPattern: "/products/:slug",
     path: "template-reuse",

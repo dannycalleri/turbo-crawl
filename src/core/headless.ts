@@ -128,7 +128,7 @@ export function formatOutcome(outcome: CrawlOutcome): unknown {
       urlPattern: outcome.urlPattern,
       llmUsed: outcome.llmUsed,
       provider: outcome.provider,
-      itemUrls: outcome.itemUrls,
+      itemUrls: outcome.items.map(item => item.url),
       paginationUrls: outcome.paginationUrls,
       policy: outcome.policy,
       warnings: outcome.warnings,

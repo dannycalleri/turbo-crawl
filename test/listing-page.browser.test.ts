@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { chromium, type Browser, type Page } from "playwright";
 import { readDomLinks, summarizeLinkGroups } from "../src/core/extraction/links.ts";
 import type { LLMProvider, StructuredLLMRequest } from "../src/core/llm-extractor/providers/LLMProvider.ts";
+import { installPageContextHelpers } from "../src/core/pageContext/runtime.ts";
 import { classifyPage } from "../src/core/template-author/classifyPage.ts";
 import type { PagePacket } from "../src/core/types.ts";
 
@@ -35,6 +36,7 @@ describe("listing links on a real browser", () => {
   beforeAll(async () => {
     browser = await chromium.launch({ headless: true });
     page = await browser.newPage();
+    await installPageContextHelpers(page);
     await page.route("https://shop.test/**", route => route.fulfill({ contentType: "text/html", body: html }));
     await page.goto(pageUrl);
   }, 30_000);
@@ -47,7 +49,8 @@ describe("listing links on a real browser", () => {
     const links = await readDomLinks(page, "a.card-link");
 
     expect(links).toHaveLength(24);
-    expect(links[0]).toBe("https://shop.test/products/clock-1");
+    expect(links[0]).toMatchObject({ url: "https://shop.test/products/clock-1", text: "Clock 1" });
+    expect(links[0]!.cssPath).toContain("a.card-link");
   });
 
   it("groups the page's links on this host by URL pattern", async () => {
@@ -87,6 +90,6 @@ describe("listing links on a real browser", () => {
       template: { itemLinks: ["ul.grid a.card-link"], nextPage: ["a[rel=next]"], itemUrlPattern: "/products/:slug" },
       paginationUrls: ["https://shop.test/category/clocks?page=2"],
     });
-    expect(result.kind === "listing" && result.itemUrls).toHaveLength(24);
+    expect(result.kind === "listing" && result.items).toHaveLength(24);
   });
 });
