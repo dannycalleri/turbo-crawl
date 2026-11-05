@@ -119,7 +119,7 @@ It suggests stored templates and schemas for the domain, lets you build a schema
 bun install
 bun run dev crawl <url>       # run from source
 bun run typecheck
-bun test
+bun run test
 bun run build                 # dist/cli.js, runs on Node
 ```
 
