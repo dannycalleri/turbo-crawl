@@ -20,7 +20,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: bun run typecheck
       - run: bun run build
-      - run: bun test
+      - run: bun run test
 
   node-smoke:
     needs: test

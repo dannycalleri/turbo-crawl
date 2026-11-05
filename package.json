@@ -47,7 +47,7 @@
     "dev": "bun run src/index.ts",
     "dev:inspect": "bun run --inspect-wait=localhost:6499/turbo-crawl src/index.ts",
     "build": "bun run scripts/build.ts",
-    "test": "bun test",
+    "test": "bun test --path-ignore-patterns='test/*.e2e.test.ts' --path-ignore-patterns='test/*.browser.test.ts' && for f in test/*.browser.test.ts; do bun test \"$f\" || exit 1; done && bun test test/*.e2e.test.ts",
     "typecheck": "tsc --noEmit",
     "prepack": "bun run build",
     "prepublishOnly": "bun run typecheck && bun run test && bun run build"
