@@ -64,7 +64,7 @@ export function generateExtractionTemplate(input: {
     return {
         id: createTemplateId(domain, inferUrlPattern(finalUrl), input.schema),
         domain,
-        urlPattern: inferUrlPattern(finalUrl),
+        urlPatterns: [inferUrlPattern(finalUrl)],
         schema: input.schema,
 
         createdFromUrl: finalUrl,

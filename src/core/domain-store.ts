@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { access, mkdir, readdir, readFile, writeFile } from "fs/promises";
+import { access, mkdir, readdir, readFile, rm, writeFile } from "fs/promises";
 import path from "path";
 import type { CompactPagePacket } from "./compactPagePacket.ts";
 import { FIELD_TYPES, type FieldType, type LLMExtractionResult, type UserSchema } from "./llm-extractor/types.ts";
@@ -16,10 +16,8 @@ export type DomainStore = {
 };
 
 export type TemplateArtifact = {
-  urlPattern: string;
-  urlPatternHash: string;
   path: string;
-  template?: ExtractionTemplate;
+  template: ExtractionTemplate;
 };
 
 export type TemplateMatchCandidate = TemplateArtifact & {
@@ -123,10 +121,6 @@ export function normalizeDomain(rawUrl: string): string {
   return hostname.startsWith("www.") ? hostname.slice(4) : hostname;
 }
 
-export function getUrlPatternHash(urlPattern: string): string {
-  return hashStorageKey(urlPattern);
-}
-
 export function getUrlPathHash(rawUrl: string): string {
   return hashStorageKey(getUrlPath(rawUrl));
 }
@@ -153,17 +147,8 @@ export function getPagePacketFolder(
   };
 }
 
-// Includes the field names so different schemas on one URL pattern get their own file.
-// Without a schema it returns the legacy pattern-only name.
-export function getTemplateArtifactPath(
-  store: DomainStore,
-  urlPattern: string,
-  schema?: UserSchema,
-): string {
-  const key = schema
-    ? `${urlPattern}\n${Object.keys(schema).sort().join(",")}`
-    : urlPattern;
-  return path.join(store.templatesPath, `${getUrlPatternHash(key)}.json`);
+export function getTemplateArtifactPath(store: DomainStore, templateId: string): string {
+  return path.join(store.templatesPath, `${templateId.replace(/^template_/, "")}.json`);
 }
 
 export async function ensureDomainStoreDirectories(store: DomainStore): Promise<void> {
@@ -179,16 +164,11 @@ export async function saveTemplate(
 ): Promise<TemplateArtifact> {
   await ensureDomainStoreDirectories(store);
 
-  const urlPatternHash = getUrlPatternHash(template.urlPattern);
-  const artifactPath = getTemplateArtifactPath(store, template.urlPattern, template.schema);
+  const artifactPath = getTemplateArtifactPath(store, template.id);
   await writeJsonFile(artifactPath, template);
+  await removeOtherFilesWithId(store, template.id, artifactPath);
 
-  return {
-    urlPattern: template.urlPattern,
-    urlPatternHash,
-    path: artifactPath,
-    template,
-  };
+  return { path: artifactPath, template };
 }
 
 export async function readTemplateForPattern(
@@ -244,12 +224,7 @@ export async function readTemplateCandidatesForPattern(
       continue;
     }
 
-    candidates.push({
-      urlPattern,
-      urlPatternHash: getUrlPatternHash(urlPattern),
-      path: artifactPath,
-      template,
-    });
+    candidates.push({ path: artifactPath, template });
   }
 
   return {
@@ -359,6 +334,20 @@ async function readPacketDirectoryEntries(store: DomainStore) {
   return readDirectoryEntries(store.packetsPath);
 }
 
+// A file named by the pre-0.2.0 scheme can hold the same id, e.g. when one field
+// changes type; leaving it would make two files match the same pages.
+async function removeOtherFilesWithId(store: DomainStore, id: string, keep: string): Promise<void> {
+  for (const entry of await readDirectoryEntries(store.templatesPath)) {
+    const filePath = path.join(store.templatesPath, entry.name);
+    if (!entry.isFile() || !entry.name.endsWith(".json") || filePath === keep) continue;
+
+    const value = await readJsonFile<unknown>(filePath).catch(() => null);
+    if (isRecord(value) && value.id === id) {
+      await rm(filePath, { force: true });
+    }
+  }
+}
+
 async function readDirectoryEntries(directoryPath: string) {
   try {
     return await readdir(directoryPath, { withFileTypes: true });
@@ -431,11 +420,12 @@ function validateTemplateArtifact(
   }
 
   const schema = value.schema;
+  const urlPatterns = readUrlPatterns(value);
 
   if (
     typeof value.id !== "string" ||
     typeof value.domain !== "string" ||
-    typeof value.urlPattern !== "string" ||
+    urlPatterns === null ||
     typeof value.createdFromUrl !== "string" ||
     typeof value.createdAt !== "string" ||
     !isUserSchema(schema) ||
@@ -458,11 +448,21 @@ function validateTemplateArtifact(
     return null;
   }
 
-  if (value.urlPattern !== urlPattern) {
+  if (!urlPatterns.includes(urlPattern)) {
     return null;
   }
 
-  return value as ExtractionTemplate;
+  const { urlPattern: _legacyPattern, ...template } = value;
+  return { ...template, urlPatterns } as ExtractionTemplate;
+}
+
+// Templates written before 0.2.0 store a single `urlPattern`.
+function readUrlPatterns(value: Record<string, unknown>): string[] | null {
+  if (Array.isArray(value.urlPatterns)) {
+    const patterns = value.urlPatterns.filter((pattern): pattern is string => typeof pattern === "string");
+    return patterns.length > 0 && patterns.length === value.urlPatterns.length ? patterns : null;
+  }
+  return typeof value.urlPattern === "string" ? [value.urlPattern] : null;
 }
 
 function pushTemplateValidationWarning(

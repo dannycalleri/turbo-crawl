@@ -129,7 +129,7 @@ function template(overrides: Partial<ExtractionTemplate>): ExtractionTemplate {
   return {
     id: "template_fixture",
     domain: "example.com",
-    urlPattern: "/products/:slug",
+    urlPatterns: ["/products/:slug"],
     schema: {
       title: "string",
     },

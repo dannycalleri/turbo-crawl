@@ -35,7 +35,8 @@ export type FieldTemplate = {
 export type ExtractionTemplate = {
     id: string;
     domain: string;
-    urlPattern: string;
+    /** The URL patterns where the template fitted, the authoring page's first. */
+    urlPatterns: string[];
     schema: Record<string, FieldType>;
 
     createdFromUrl: string;

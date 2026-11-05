@@ -8,7 +8,6 @@ import {
   getPagePacketFolder,
   getTemplateArtifactPath,
   getUrlPathHash,
-  getUrlPatternHash,
   listResults,
   normalizeDomain,
   readTemplateCandidatesForPattern,
@@ -119,7 +118,7 @@ function createTemplate(): ExtractionTemplate {
   return {
     id: "template_fixture",
     domain: "marketplace.com",
-    urlPattern: "/products/:slug",
+    urlPatterns: ["/products/:slug"],
     schema: {
       title: "string",
     },
@@ -164,7 +163,7 @@ describe("domain store foundational helpers", () => {
     );
   });
 
-  it("builds stable domain paths and hashes for URL patterns and URL paths", async () => {
+  it("builds stable domain paths and hashes for URL paths", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
       targetUrl: "https://WWW.Marketplace.com/products/example?ref=campaign#details",
@@ -179,13 +178,6 @@ describe("domain store foundational helpers", () => {
       packetsPath: path.join(rootPath, "marketplace.com", "packets"),
     });
 
-    expect(getUrlPatternHash("/products/:slug")).toMatch(/^[a-f0-9]{16}$/);
-    expect(getUrlPatternHash("/products/:slug")).toBe(
-      getUrlPatternHash("/products/:slug"),
-    );
-    expect(getUrlPatternHash("/products/:slug")).not.toBe(
-      getUrlPatternHash("/articles/:slug"),
-    );
     expect(getUrlPathHash("https://marketplace.com/products/example?ref=one")).toBe(
       getUrlPathHash("https://marketplace.com/products/example?ref=two#details"),
     );
@@ -244,9 +236,7 @@ describe("domain store foundational helpers", () => {
     const artifact = await saveTemplate(store, template);
 
     expect(artifact).toEqual({
-      urlPattern: "/products/:slug",
-      urlPatternHash: getUrlPatternHash("/products/:slug"),
-      path: getTemplateArtifactPath(store, "/products/:slug", createTemplate().schema),
+      path: path.join(store.templatesPath, `${template.id.replace(/^template_/, "")}.json`),
       template,
     });
     expect(await readJsonFile<ExtractionTemplate>(artifact.path)).toEqual(template);
@@ -272,6 +262,45 @@ describe("domain store foundational helpers", () => {
     ).resolves.toBeNull();
   });
 
+  it("reads a template written with a single urlPattern as a one-entry urlPatterns list", async () => {
+    const rootPath = await createTempDir();
+    const store = createDomainStore({ targetUrl: "https://marketplace.com/products/example", rootPath });
+    const { urlPatterns: _patterns, ...current } = createTemplate();
+    await writeJsonFile(path.join(store.templatesPath, "legacy.json"), { ...current, urlPattern: "/products/:slug" });
+
+    const result = await readTemplateCandidatesForPattern(store, "/products/:slug");
+
+    expect(result.warnings).toEqual([]);
+    expect(result.candidates.map(candidate => candidate.template)).toEqual([createTemplate()]);
+  });
+
+  it("removes an older file with the same template id when it saves a template", async () => {
+    const rootPath = await createTempDir();
+    const store = createDomainStore({ targetUrl: "https://marketplace.com/products/example", rootPath });
+    const legacyPath = path.join(store.templatesPath, "0123456789abcdef.json");
+    const otherPath = path.join(store.templatesPath, "other.json");
+    await writeJsonFile(legacyPath, { ...createTemplate(), schema: { title: "text" } });
+    await writeJsonFile(otherPath, { ...createTemplate(), id: "template_other" });
+
+    await saveTemplate(store, createTemplate());
+
+    await expect(stat(legacyPath)).rejects.toThrow();
+    expect((await stat(otherPath)).isFile()).toBe(true);
+    expect((await readTemplateCandidatesForPattern(store, "/products/:slug")).candidates).toHaveLength(2);
+  });
+
+  it("names template files by template id, so field sets on one pattern sit side by side", async () => {
+    const rootPath = await createTempDir();
+    const store = createDomainStore({ targetUrl: "https://marketplace.com/products/example", rootPath });
+
+    const first = await saveTemplate(store, createTemplate());
+    const second = await saveTemplate(store, { ...createTemplate(), id: "template_00000000000000ab", schema: { sku: "string" } });
+
+    expect(path.basename(first.path)).toBe(`${createTemplate().id.replace(/^template_/, "")}.json`);
+    expect(path.basename(second.path)).toBe("00000000000000ab.json");
+    expect((await readTemplateCandidatesForPattern(store, "/products/:slug")).candidates).toHaveLength(2);
+  });
+
   it("discovers a valid matching template candidate by domain and URL pattern", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
@@ -286,9 +315,7 @@ describe("domain store foundational helpers", () => {
     expect(result).toEqual({
       candidates: [
         {
-          urlPattern: "/products/:slug",
-          urlPatternHash: getUrlPatternHash("/products/:slug"),
-          path: getTemplateArtifactPath(store, "/products/:slug", createTemplate().schema),
+          path: getTemplateArtifactPath(store, template.id),
           template,
         },
       ],
@@ -321,7 +348,7 @@ describe("domain store foundational helpers", () => {
       targetUrl: "https://marketplace.com/products/example",
       rootPath,
     });
-    const artifactPath = getTemplateArtifactPath(store, "/products/:slug");
+    const artifactPath = path.join(store.templatesPath, "broken.json");
 
     await ensureDomainStoreDirectories(store);
     await writeFile(artifactPath, "{not-json");
@@ -358,7 +385,7 @@ describe("domain store foundational helpers", () => {
     expect(result.warnings).toEqual([]);
     expect(result.candidates.map((candidate) => candidate.path)).toEqual([
       duplicatePath,
-      getTemplateArtifactPath(store, "/products/:slug", createTemplate().schema),
+      getTemplateArtifactPath(store, template.id),
     ].sort());
     expect(result.candidates.map((candidate) => candidate.template.id).sort()).toEqual([
       "template_duplicate",
@@ -378,7 +405,7 @@ describe("domain store foundational helpers", () => {
       await writeJsonFile(path.join(store.templatesPath, `other-${index}.json`), {
         ...createTemplate(),
         id: `template_other_${index}`,
-        urlPattern: `/other/${index}`,
+        urlPatterns: [`/other/${index}`],
       });
     }
 
@@ -399,7 +426,7 @@ describe("domain store foundational helpers", () => {
       targetUrl: "https://marketplace.com/products/example",
       rootPath,
     });
-    const artifactPath = getTemplateArtifactPath(store, "/products/:slug");
+    const artifactPath = path.join(store.templatesPath, "broken.json");
     const warnings: unknown[] = [];
 
     await ensureDomainStoreDirectories(store);
