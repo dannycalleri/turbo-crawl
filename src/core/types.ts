@@ -15,11 +15,21 @@ export type PagePacketStats = {
     tableCount: number;
 };
 
+export type PageResponse = {
+    /** Null when navigation produced no response, such as an `about:blank` or same-document URL. */
+    status: number | null;
+    xRobotsTag: string | null;
+    tdmReservation: string | null;
+    tdmPolicy: string | null;
+    retryAfter: string | null;
+};
+
 export type PagePacket = {
     url: string;
     finalUrl: string;
     fetchedAt: string;
     title: string | null;
+    response: PageResponse;
 
     metadata: PageMetadata;
     jsonLd: JsonLdBlock[];

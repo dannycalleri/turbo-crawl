@@ -20,6 +20,7 @@ function createPagePacket(): PagePacket {
     finalUrl: "https://example.com/watch",
     fetchedAt: "2026-05-11T00:00:00.000Z",
     title: "Example Watch",
+    response: { status: 200, xRobotsTag: null, tdmReservation: null, tdmPolicy: null, retryAfter: null },
     metadata: {
       canonicalUrl: null,
       description: "Example watch.",

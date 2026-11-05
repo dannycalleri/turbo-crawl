@@ -11,9 +11,7 @@ export interface PageMetadata {
 
 export async function extractMetadata(page: Page): Promise<PageMetadata> {
   return page.evaluate(() => {
-    const canonical =
-      document.querySelector('link[rel="canonical"]')?.getAttribute("href") ||
-      null;
+    const canonical = absoluteWithoutFragment(document.querySelector<HTMLLinkElement>('link[rel="canonical"]'));
 
     const openGraph: Record<string, string> = {};
     const twitter: Record<string, string> = {};
@@ -36,6 +34,17 @@ export async function extractMetadata(page: Page): Promise<PageMetadata> {
       } else {
         other[key] = content;
       }
+    }
+
+    function absoluteWithoutFragment(link: HTMLLinkElement | null): string | null {
+        if (!link?.getAttribute("href")) return null;
+        try {
+            const url = new URL(link.href);
+            url.hash = "";
+            return url.toString();
+        } catch {
+            return null;
+        }
     }
 
     function getMetaByName(name: string): string | null {

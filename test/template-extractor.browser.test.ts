@@ -62,6 +62,7 @@ function createPagePacket(overrides: Partial<PagePacket> = {}): PagePacket {
     finalUrl: "https://example.com/products/black-bay-58",
     fetchedAt: "2026-04-30T10:00:00.000Z",
     title: "Template fixture",
+    response: { status: 200, xRobotsTag: null, tdmReservation: null, tdmPolicy: null, retryAfter: null },
     metadata: {
       canonicalUrl: "https://example.com/products/black-bay-58",
       description: "Template fixture description",
