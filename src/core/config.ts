@@ -35,7 +35,9 @@ export async function resolveUserAgent(
   option: string | undefined,
   locations: ConfigLocations = defaultConfigLocations(),
 ): Promise<string> {
-  const configs = await Promise.all((await configFiles(locations)).map(readConfigFile));
+  const configs: Array<TurboCrawlConfig | null> = [];
+  // In priority order, so the error for two invalid files always names the nearest one.
+  for (const file of await configFiles(locations)) configs.push(await readConfigFile(file));
 
   return option?.trim() || configs.find(config => config?.userAgent)?.userAgent || DEFAULT_USER_AGENT;
 }
