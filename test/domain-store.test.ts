@@ -48,6 +48,7 @@ function createPagePacket(): PagePacket {
     finalUrl: "https://marketplace.com/products/example?ref=campaign",
     fetchedAt: "2026-05-10T20:02:33.000Z",
     title: "Example",
+    response: { status: 200, xRobotsTag: null, tdmReservation: null, tdmPolicy: null, retryAfter: null },
     metadata: {
       canonicalUrl: "https://marketplace.com/products/example",
       description: "Fixture",

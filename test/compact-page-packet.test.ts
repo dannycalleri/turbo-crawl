@@ -70,6 +70,7 @@ function createPagePacket(overrides: Partial<PagePacket> = {}): PagePacket {
     finalUrl: "https://example.com/final",
     fetchedAt: "2026-04-26T10:00:00.000Z",
     title: "Example Item",
+    response: { status: 200, xRobotsTag: null, tdmReservation: null, tdmPolicy: null, retryAfter: null },
     metadata: {
       canonicalUrl: "https://example.com/final",
       description: "A compact page packet fixture.",

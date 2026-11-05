@@ -11,6 +11,7 @@ function createPagePacket(): PagePacket {
     finalUrl: "https://example.com/products/tissot",
     fetchedAt: "2026-05-14T15:49:06.000Z",
     title: "TISSOT VISODATE 39mm",
+    response: { status: 200, xRobotsTag: null, tdmReservation: null, tdmPolicy: null, retryAfter: null },
     metadata: {
       canonicalUrl: "https://example.com/products/tissot",
       description: null,

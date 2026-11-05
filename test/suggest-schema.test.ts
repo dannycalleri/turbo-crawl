@@ -13,6 +13,7 @@ function pagePacket(): PagePacket {
     finalUrl: "https://shop.example/products/clock-1",
     fetchedAt: "2026-10-11T10:00:00.000Z",
     title: "Clock",
+    response: { status: 200, xRobotsTag: null, tdmReservation: null, tdmPolicy: null, retryAfter: null },
     metadata: { canonicalUrl: null, description: null, robots: null, openGraph: {}, twitter: {}, other: {} },
     jsonLd: [],
     visibleBlocks: [],

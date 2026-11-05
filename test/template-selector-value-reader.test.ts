@@ -18,6 +18,7 @@ function createPagePacket(overrides: Partial<PagePacket> = {}): PagePacket {
     finalUrl: "https://example.com/products/final",
     fetchedAt: "2026-04-30T10:00:00.000Z",
     title: "Fixture product",
+    response: { status: 200, xRobotsTag: null, tdmReservation: null, tdmPolicy: null, retryAfter: null },
     metadata: {
       canonicalUrl: "https://example.com/products/final",
       description: "Fixture description",

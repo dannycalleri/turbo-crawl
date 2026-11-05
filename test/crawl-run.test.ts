@@ -45,6 +45,7 @@ function createPagePacket(): PagePacket {
     finalUrl: "https://example.com/final",
     fetchedAt: "2026-04-24T10:00:00.000Z",
     title: "Fixture",
+    response: { status: 200, xRobotsTag: null, tdmReservation: null, tdmPolicy: null, retryAfter: null },
     metadata: {
       canonicalUrl: "https://example.com/final",
       description: "Fixture description",
