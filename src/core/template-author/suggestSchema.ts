@@ -1,7 +1,6 @@
 import { z } from "zod";
 import type { LLMProvider } from "../llm-extractor/providers/LLMProvider";
-import type { FieldType, UserSchema } from "../llm-extractor/types";
-import { PROPERTY_TYPES as FIELD_TYPES } from "../session-state";
+import { FIELD_TYPES, type FieldType, type UserSchema } from "../llm-extractor/types";
 import { inferUrlPattern } from "../templating/inferUrlPattern";
 import type { PagePacket } from "../types";
 import { formatPageContext } from "./authorPrompt";

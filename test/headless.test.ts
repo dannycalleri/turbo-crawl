@@ -71,7 +71,7 @@ const template: ExtractionTemplate = {
 };
 
 function discovery(overrides: Partial<ReuseDiscoveryOptions> = {}): ReuseDiscoveryOptions {
-  return { template: null, schemas: [], warnings: [], ambiguousTemplates: [], ...overrides };
+  return { template: null, warnings: [], ambiguousTemplates: [], ...overrides };
 }
 
 function outcome(input: CrawlStartInput): CrawlOutcome {
@@ -144,7 +144,6 @@ function harness(options: {
     },
     stdout: { write: chunk => (stdout += chunk) },
     stderr: { write: chunk => (stderr += chunk) },
-    now: () => new Date("2026-10-11T10:00:00.000Z"),
   };
 
   return {
@@ -195,7 +194,7 @@ describe("runHeadlessCrawl", () => {
 
     expect(await runHeadlessCrawl({ target }, h.deps)).toBe(EXIT_OK);
     expect(h.resolveCalls).toBe(0);
-    expect(h.started[0]).toMatchObject({ source: "template-reuse", template, schema: [{ name: "title", type: "string" }] });
+    expect(h.started[0]).toMatchObject({ source: "template-reuse", template });
   });
 
   it("authors a new template when --fields differs from the saved one", async () => {
@@ -204,11 +203,8 @@ describe("runHeadlessCrawl", () => {
     expect(await runHeadlessCrawl({ target, fields: "title:string,price:number" }, h.deps)).toBe(EXIT_OK);
     expect(h.resolveCalls).toBe(1);
     expect(h.started[0]).toMatchObject({
-      source: "schema-builder",
-      schema: [
-        { name: "title", type: "string" },
-        { name: "price", type: "number" },
-      ],
+      source: "fields",
+      schema: { title: "string", price: "number" },
     });
     expect(h.stderr).toContain("Using claude to write the template.");
   });

@@ -2,7 +2,7 @@ import { createHash } from "crypto";
 import { access, mkdir, readdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import type { CompactPagePacket } from "./compactPagePacket.ts";
-import type { FieldType, LLMExtractionResult, UserSchema } from "./llm-extractor/types.ts";
+import { FIELD_TYPES, type FieldType, type LLMExtractionResult, type UserSchema } from "./llm-extractor/types.ts";
 import type { TemplateExtractionResult } from "./template-extractor/types.ts";
 import type { ExtractionTemplate } from "./templating/types.ts";
 import type { PagePacket } from "./types.ts";
@@ -11,15 +11,8 @@ export type DomainStore = {
   rootPath: string;
   domain: string;
   domainPath: string;
-  schemasPath: string;
   templatesPath: string;
   packetsPath: string;
-};
-
-export type SchemaArtifact = {
-  schema: UserSchema;
-  createdAt: string;
-  path: string;
 };
 
 export type TemplateArtifact = {
@@ -27,18 +20,6 @@ export type TemplateArtifact = {
   urlPatternHash: string;
   path: string;
   template?: ExtractionTemplate;
-};
-
-export type SchemaPreview = {
-  id: string;
-  label: string;
-  createdAt: string | null;
-  path: string;
-  fieldCount: number;
-  fieldSummaries: Array<{
-    name: string;
-    type: FieldType;
-  }>;
 };
 
 export type TemplateMatchCandidate = TemplateArtifact & {
@@ -79,8 +60,6 @@ export type StorageError = {
     | "create-directory"
     | "read-json"
     | "write-json"
-    | "schema-path"
-    | "schema-validation"
     | "template-validation"
     | "result-list";
   path: string;
@@ -129,7 +108,6 @@ export function createDomainStore(input: DomainStoreInput): DomainStore {
     rootPath,
     domain,
     domainPath,
-    schemasPath: path.join(domainPath, "schemas"),
     templatesPath: path.join(domainPath, "templates"),
     packetsPath: path.join(domainPath, "packets"),
   };
@@ -188,34 +166,11 @@ export function getTemplateArtifactPath(
   return path.join(store.templatesPath, `${getUrlPatternHash(key)}.json`);
 }
 
-export function toUtcSecondTimestamp(date: Date): string {
-  const timestamp = date.toISOString();
-  return timestamp.slice(0, 19);
-}
-
 export async function ensureDomainStoreDirectories(store: DomainStore): Promise<void> {
   await Promise.all([
-    mkdir(store.schemasPath, { recursive: true }),
     mkdir(store.templatesPath, { recursive: true }),
     mkdir(store.packetsPath, { recursive: true }),
   ]);
-}
-
-export async function saveSchema(
-  store: DomainStore,
-  schema: UserSchema,
-  createdAt: Date,
-): Promise<SchemaArtifact> {
-  await ensureDomainStoreDirectories(store);
-
-  const artifactPath = await getSchemaArtifactPath(store, createdAt);
-  await writeJsonFile(artifactPath, schema);
-
-  return {
-    schema,
-    createdAt: toUtcSecondTimestamp(createdAt),
-    path: artifactPath,
-  };
 }
 
 export async function saveTemplate(
@@ -303,66 +258,6 @@ export async function readTemplateCandidatesForPattern(
   };
 }
 
-export async function listSchemaPreviews(
-  store: DomainStore,
-): Promise<ReuseDiscoveryResult<SchemaPreview>> {
-  const entries = await readDirectoryEntries(store.schemasPath);
-  const candidates: SchemaPreview[] = [];
-  const warnings: ReuseWarning[] = [];
-
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) {
-      continue;
-    }
-
-    const schemaPath = path.join(store.schemasPath, entry.name);
-    let value: unknown;
-
-    try {
-      value = await readJsonFile<unknown>(schemaPath);
-    } catch (error) {
-      warnings.push({
-        operation: "read-json",
-        path: schemaPath,
-        message: `Unable to read schema JSON at ${schemaPath}: ${getErrorMessage(error)}`,
-        recoverable: true,
-      });
-      continue;
-    }
-
-    const schema = extractStoredSchema(value);
-
-    if (schema === null) {
-      warnings.push({
-        operation: "schema-validation",
-        path: schemaPath,
-        message: "Schema artifact is not a valid non-empty extraction schema.",
-        recoverable: true,
-      });
-      continue;
-    }
-
-    const createdAt = inferSchemaCreatedAt(entry.name);
-    const fieldSummaries = Object.entries(schema)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([name, type]) => ({ name, type }));
-
-    candidates.push({
-      id: schemaPath,
-      label: createdAt ?? entry.name.replace(/\.json$/i, ""),
-      createdAt,
-      path: schemaPath,
-      fieldCount: fieldSummaries.length,
-      fieldSummaries,
-    });
-  }
-
-  return {
-    candidates: candidates.sort((left, right) => left.path.localeCompare(right.path)),
-    warnings,
-  };
-}
-
 export async function savePageArtifacts(
   store: DomainStore,
   artifacts: PageArtifacts,
@@ -428,29 +323,6 @@ export async function listResults(
   }
 
   return artifacts.sort((left, right) => left.path.localeCompare(right.path));
-}
-
-export async function getSchemaArtifactPath(
-  store: DomainStore,
-  createdAt: Date,
-): Promise<string> {
-  const timestamp = toUtcSecondTimestamp(createdAt);
-  const basePath = path.join(store.schemasPath, `${timestamp}.json`);
-
-  if (!(await fileExists(basePath))) {
-    return basePath;
-  }
-
-  for (let index = 1; index < 1000; index += 1) {
-    const suffix = String(index).padStart(3, "0");
-    const candidate = path.join(store.schemasPath, `${timestamp}-${suffix}.json`);
-
-    if (!(await fileExists(candidate))) {
-      return candidate;
-    }
-  }
-
-  throw new Error(`Unable to allocate a schema artifact path for ${timestamp}.`);
 }
 
 export async function writeJsonFile(
@@ -622,32 +494,8 @@ function isUserSchema(value: unknown): value is UserSchema {
   );
 }
 
-function extractStoredSchema(value: unknown): UserSchema | null {
-  if (isUserSchema(value)) {
-    return value;
-  }
-
-  if (isRecord(value) && isUserSchema(value.schema)) {
-    return value.schema;
-  }
-
-  return null;
-}
-
-function inferSchemaCreatedAt(fileName: string): string | null {
-  const match = fileName.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:-\d{3})?\.json$/);
-  return match?.[1] ?? null;
-}
-
 function isFieldType(value: unknown): value is FieldType {
-  return (
-    value === "string" ||
-    value === "number" ||
-    value === "boolean" ||
-    value === "date" ||
-    value === "url" ||
-    value === "text"
-  );
+  return (FIELD_TYPES as readonly unknown[]).includes(value);
 }
 
 function normalizeStoredDomain(domain: string): string {

@@ -1,10 +1,6 @@
-export type FieldType =
-  | "string"
-  | "number"
-  | "boolean"
-  | "date"
-  | "url"
-  | "text";
+export const FIELD_TYPES = ["string", "number", "boolean", "date", "url", "text"] as const;
+
+export type FieldType = typeof FIELD_TYPES[number];
 
 export type UserSchema = Record<string, FieldType>;
 
