@@ -235,7 +235,7 @@ describe("turbo-crawl CLI end to end", () => {
   );
 
   it(
-    "prints the item and pagination URLs of a category page",
+    "prints the item and pagination URLs of a category page, and reuses its listing template",
     async () => {
       if (buildError !== null) return;
 
@@ -257,6 +257,11 @@ describe("turbo-crawl CLI end to end", () => {
       expect(printed.templateFit.templatePath).toContain(`${path.sep}listings${path.sep}`);
       const callsAfter = (await readFile(counterFile, "utf8")).trim().split("\n").length;
       expect(callsAfter - callsBefore).toBe(1);
+
+      const again = await runCli(["crawl", `${base}/category/clocks`, "--data-dir", path.join(workDir, "data")], env, workDir);
+      expect(again.code).toBe(0);
+      expect(JSON.parse(again.stdout)).toMatchObject({ kind: "listing", llmUsed: false, itemUrls: printed.itemUrls });
+      expect((await readFile(counterFile, "utf8")).trim().split("\n")).toHaveLength(callsAfter);
     },
     30_000,
   );

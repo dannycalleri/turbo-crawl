@@ -183,6 +183,55 @@ export async function saveListingTemplate(
   return { path: artifactPath, template };
 }
 
+export async function listListingTemplates(
+  store: DomainStore,
+): Promise<ReuseDiscoveryResult<ListingTemplateArtifact>> {
+  const warnings: ReuseWarning[] = [];
+  const candidates: ListingTemplateArtifact[] = [];
+
+  for (const entry of await readDirectoryEntries(store.listingsPath)) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+
+    const artifactPath = path.join(store.listingsPath, entry.name);
+    const value = await readJsonFile<unknown>(artifactPath).catch(error => {
+      warnings.push({
+        operation: "read-json",
+        path: artifactPath,
+        message: `Unable to read listing template JSON at ${artifactPath}: ${getErrorMessage(error)}`,
+        recoverable: true,
+      });
+      return null;
+    });
+    if (value === null) continue;
+
+    if (!isListingTemplate(value) || normalizeStoredDomain(value.domain) !== store.domain) {
+      pushTemplateValidationWarning(warnings, artifactPath, `Listing template is invalid or does not match domain ${store.domain}.`);
+      continue;
+    }
+    candidates.push({ path: artifactPath, template: value });
+  }
+
+  return { candidates: candidates.sort((left, right) => left.path.localeCompare(right.path)), warnings };
+}
+
+function isListingTemplate(value: unknown): value is ListingTemplate {
+  const isStrings = (list: unknown) => Array.isArray(list) && list.every(item => typeof item === "string");
+  return (
+    isRecord(value) &&
+    value.kind === "listing" &&
+    typeof value.id === "string" &&
+    typeof value.domain === "string" &&
+    isStrings(value.urlPatterns) &&
+    isStrings(value.itemLinks) &&
+    (value.itemLinks as string[]).length > 0 &&
+    isStrings(value.nextPage) &&
+    isStrings(value.pageLinks) &&
+    typeof value.itemUrlPattern === "string" &&
+    typeof value.createdFromUrl === "string" &&
+    typeof value.createdAt === "string"
+  );
+}
+
 export async function listTemplatesForDomain(
   store: DomainStore,
   options: { fields?: UserSchema } = {},

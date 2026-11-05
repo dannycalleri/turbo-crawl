@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtemp, rm } from "fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import {
@@ -15,7 +15,7 @@ import type { AuthorTemplateInput } from "../src/core/template-author/authorTemp
 import type { PagePacket } from "../src/core/types.ts";
 import { CrawlFailure } from "../src/core/policy/policy.ts";
 import type { RobotsStatus } from "../src/core/policy/robots.ts";
-import type { ExtractionTemplate } from "../src/core/templating/types.ts";
+import type { ExtractionTemplate, ListingTemplate } from "../src/core/templating/types.ts";
 import type { TemplateExtractionResult } from "../src/core/template-extractor/types.ts";
 import type { Page } from "playwright";
 import {
@@ -24,9 +24,11 @@ import {
   listTemplatesForDomain,
   addPatternToTemplate,
   savePageArtifacts,
+  listListingTemplates,
   saveListingTemplate,
   saveTemplate,
 } from "../src/core/domain-store.ts";
+import type { ListingLinks } from "../src/core/template-author/validateListingSelectors.ts";
 import type { LinkGroup } from "../src/core/extraction/links.ts";
 import type { ClassifyPageInput, PageClassification } from "../src/core/template-author/classifyPage.ts";
 
@@ -301,6 +303,22 @@ describe("crawl start stub wiring", () => {
 });
 
 describe("listing pages", () => {
+  const listingTemplate: ListingTemplate = {
+    id: "listing_fixture",
+    kind: "listing",
+    domain: "example.com",
+    urlPatterns: ["/final"],
+    itemLinks: ["ul.grid a.card"],
+    nextPage: ["a[rel=next]"],
+    pageLinks: [],
+    itemUrlPattern: "/products/:slug",
+    createdFromUrl: "https://example.com/final",
+    createdAt: "2026-11-05T00:00:00.000Z",
+  };
+  const links: ListingLinks = {
+    itemUrls: ["https://example.com/products/a-1", "https://example.com/products/b-2"],
+    paginationUrls: ["https://example.com/final?page=2"],
+  };
   const productGroup: LinkGroup = {
     urlPattern: "/products/:slug",
     count: 4,
@@ -310,20 +328,8 @@ describe("listing pages", () => {
   it("returns the item and pagination links, saves the listing template, and authors no field template", async () => {
     const classification: PageClassification = {
       kind: "listing",
-      template: {
-        id: "listing_fixture",
-        kind: "listing",
-        domain: "example.com",
-        urlPatterns: ["/final"],
-        itemLinks: ["ul.grid a.card"],
-        nextPage: ["a[rel=next]"],
-        pageLinks: [],
-        itemUrlPattern: "/products/:slug",
-        createdFromUrl: "https://example.com/final",
-        createdAt: "2026-11-05T00:00:00.000Z",
-      },
-      itemUrls: ["https://example.com/products/a-1", "https://example.com/products/b-2"],
-      paginationUrls: ["https://example.com/final?page=2"],
+      template: listingTemplate,
+      ...links,
       calls: [],
       provider: "claude",
       warnings: [],
@@ -342,6 +348,78 @@ describe("listing pages", () => {
     expect(harness.authorCalls).toHaveLength(0);
     expect(harness.classifyCalls[0]?.groups).toEqual([productGroup]);
     expect(await readJsonFile<unknown>(path.join(harness.store.listingsPath, "fixture.json"))).toEqual(classification.template);
+  });
+
+  it("reads the links with a saved listing template that fits, with no agent call, and saves the new URL pattern", async () => {
+    const harness = await createHarness({ linkGroups: [productGroup], listingLinks: () => links });
+    const saved = await saveListingTemplate(harness.store, { ...listingTemplate, urlPatterns: ["/category/:slug"] });
+
+    const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
+
+    expect(outcome).toMatchObject({ kind: "listing", ...links, llmUsed: false, templateFit: { templatePath: saved.path, matchedPattern: false } });
+    expect(harness.providerResolutions).toBe(0);
+    expect(harness.classifyCalls).toHaveLength(0);
+    expect((await readJsonFile<ListingTemplate>(saved.path)).urlPatterns).toEqual(["/category/:slug", "/final"]);
+  });
+
+  it("keeps a field template that knows the URL pattern over a listing template that fits on a new pattern", async () => {
+    const harness = await createHarness({ listingLinks: () => links });
+    await saveTemplate(harness.store, createTemplate());
+    await saveListingTemplate(harness.store, { ...listingTemplate, urlPatterns: ["/category/:slug"] });
+
+    const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
+
+    expect(outcome).toMatchObject({ kind: "item", path: "template-reuse" });
+  });
+
+  it("keeps a stale field template that knows the URL pattern over a listing template that fits on a new pattern", async () => {
+    const harness = await createHarness({
+      listingLinks: () => links,
+      extractResult: createTemplateExtractionResult({
+        payload: { title: null },
+        fieldResults: {
+          title: { fieldName: "title", type: "string", rawValue: null, normalizedValue: null, selectorUsed: null, confidence: 0, warnings: [], candidatesTried: [] },
+        },
+      }),
+    });
+    await saveTemplate(harness.store, createTemplate());
+    await saveListingTemplate(harness.store, { ...listingTemplate, urlPatterns: ["/category/:slug"] });
+
+    const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
+
+    expect(outcome).toMatchObject({ kind: "item", stale: true });
+  });
+
+  it("picks the newest of two listing templates that fit on a new pattern", async () => {
+    const harness = await createHarness({ listingLinks: () => links });
+    await saveListingTemplate(harness.store, { ...listingTemplate, id: "listing_a_older", urlPatterns: ["/a"], createdAt: "2026-10-01T00:00:00.000Z" });
+    await saveListingTemplate(harness.store, { ...listingTemplate, id: "listing_b_newer", urlPatterns: ["/b"], createdAt: "2026-11-01T00:00:00.000Z" });
+
+    const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
+
+    expect(outcome).toMatchObject({ kind: "listing", templateFit: { templateId: "listing_b_newer" } });
+  });
+
+  it("warns about an unreadable listing template file on an item result too", async () => {
+    const harness = await createHarness();
+    await saveTemplate(harness.store, createTemplate());
+    const broken = path.join(harness.store.listingsPath, "broken.json");
+    await mkdir(harness.store.listingsPath, { recursive: true });
+    await writeFile(broken, "{not json", "utf8");
+
+    const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
+
+    expect(outcome.kind).toBe("item");
+    expect(outcome.warnings.some(warning => warning.includes(broken))).toBe(true);
+  });
+
+  it("goes on to the field templates when no saved listing template fits", async () => {
+    const harness = await createHarness({ listingLinks: () => null });
+    await saveListingTemplate(harness.store, listingTemplate);
+
+    const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
+
+    expect(outcome.kind).toBe("item");
   });
 
   it("authors a field template on the same page when the agent says it is a detail page", async () => {
@@ -382,6 +460,7 @@ async function createHarness(config: {
   extractResult?: TemplateExtractionResult;
   linkGroups?: LinkGroup[];
   classification?: PageClassification;
+  listingLinks?: (template: ListingTemplate) => ListingLinks | null;
 } = {}) {
   const rootPath = await createTempDir();
   const store = createDomainStore({ targetUrl: "https://example.com/final", rootPath });
@@ -432,6 +511,10 @@ async function createHarness(config: {
       return config.classification ?? { kind: "detail", calls: [] };
     },
     saveListingTemplate,
+    listListingTemplates,
+    async readListingLinks(_page, template) {
+      return config.listingLinks?.(template) ?? null;
+    },
     async extractWithTemplate() {
       return config.extractResult ?? createTemplateExtractionResult();
     },
