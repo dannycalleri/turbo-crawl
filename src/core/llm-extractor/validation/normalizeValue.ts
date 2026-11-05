@@ -115,23 +115,35 @@ function normalizeBoolean(value: unknown): boolean | null {
     return null;
 }
 
+// Date.parse rolls 2026-02-30 over to March 2 instead of rejecting it.
+function isRealCalendarDate(isoText: string): boolean {
+    const [year, month, day] = isoText.slice(0, 10).split("-").map(Number);
+    const date = new Date(Date.UTC(year!, month! - 1, day!));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month! - 1 && date.getUTCDate() === day;
+}
+
 function normalizeDate(value: unknown): string | null {
     const text = String(value).trim();
 
     if (!text) return null;
 
-    /**
-     * MVP behavior:
-     * - keep ISO dates as-is
-     * - otherwise preserve raw string for user review
-     *
-     * Eventually add date-fns/luxon parsing with locale hints.
-     */
-    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-        return text;
+    // A date or a local time without an offset stays as written: converting it would invent a time zone.
+    if (/^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?$/.test(text)) {
+        const iso = text.replace(" ", "T");
+        return isRealCalendarDate(text) && !Number.isNaN(Date.parse(iso)) ? iso : null;
     }
 
-    return text;
+    const isoWithOffset = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/i;
+    const rfc2822 = /^(?:[A-Z][a-z]{2},\s*)?\d{1,2}\s+[A-Z][a-z]{2}\s+\d{4}\s+\d{2}:\d{2}(?::\d{2})?\s+(?:GMT|UTC?|[A-Z]{3}|[+-]\d{4})$/;
+    if ((isoWithOffset.test(text) && isRealCalendarDate(text)) || rfc2822.test(text)) {
+        const time = Date.parse(isoWithOffset.test(text) ? text.replace(" ", "T") : text);
+        return Number.isNaN(time) ? null : new Date(time).toISOString();
+    }
+
+    if (/^\d{10}$/.test(text)) return new Date(Number(text) * 1000).toISOString();
+    if (/^\d{13}$/.test(text)) return new Date(Number(text)).toISOString();
+
+    return null;
 }
 
 function normalizeUrl(value: unknown, baseUrl?: string): string | null {
