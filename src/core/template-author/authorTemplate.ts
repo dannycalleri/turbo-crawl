@@ -140,7 +140,7 @@ export async function authorTemplate(input: AuthorTemplateInput): Promise<Author
     const template: ExtractionTemplate = {
         id: createTemplateId(domain, urlPattern, input.schema),
         domain,
-        urlPattern,
+        urlPatterns: [urlPattern],
         schema: input.schema,
         createdFromUrl: finalUrl,
         createdAt: (input.now ?? (() => new Date()))().toISOString(),

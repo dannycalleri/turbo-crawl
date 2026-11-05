@@ -78,7 +78,7 @@ function createTemplate(overrides: Partial<ExtractionTemplate> = {}): Extraction
   return {
     id: "template_fixture",
     domain: "example.com",
-    urlPattern: "/final",
+    urlPatterns: ["/final"],
     schema: {
       title: "string",
     },

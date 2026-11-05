@@ -262,7 +262,7 @@ describe("authorTemplate on a live page", () => {
     expect(Object.keys((requests[1]!.jsonSchema as { properties: { fields: { properties: object } } }).properties.fields.properties)).toEqual(["title"]);
 
     expect(authored.warnings).toEqual([]);
-    expect(authored.template.urlPattern).toBe("/products/:slug");
+    expect(authored.template.urlPatterns).toEqual(["/products/:slug"]);
     expect(authored.template.domain).toBe("shop.example");
     expect(authored.template.fields.title!.selectors.map(selector => selector.selector)).toEqual(["h1.product-title"]);
     expect(authored.template.fields.price!.selectors[0]!.kind).toBe("jsonld");

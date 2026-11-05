@@ -66,7 +66,7 @@ describe("normalizeTarget", () => {
 const template: ExtractionTemplate = {
   id: "template_fixture",
   domain: "example.com",
-  urlPattern: "/products/:slug",
+  urlPatterns: ["/products/:slug"],
   schema: { title: "string" },
   createdFromUrl: "https://example.com/products/one",
   createdAt: "2026-10-11T10:00:00.000Z",
@@ -189,8 +189,8 @@ describe("runHeadlessCrawl", () => {
     const h = harness({
       discovery: discovery({
         ambiguousTemplates: [
-          { urlPattern: "/products/:slug", urlPatternHash: "a", path: "data/example.com/templates/a.json", template },
-          { urlPattern: "/products/:slug", urlPatternHash: "b", path: "data/example.com/templates/b.json", template },
+          { path: "data/example.com/templates/a.json", template },
+          { path: "data/example.com/templates/b.json", template },
         ],
       }),
     });
