@@ -41,7 +41,7 @@ export type PolicyInfo = {
 export type TemplateFit = {
   templateId: string;
   templatePath: string;
-  /** False when the template fitted by content on a URL pattern it did not know yet. */
+  /** False when the template fitted by content on a URL that none of its URL patterns matched yet. */
   matchedPattern: boolean;
 };
 
@@ -52,6 +52,7 @@ type PageResult = {
   finalUrl: string;
   canonicalUrl: string | null;
   fetchedAt: string;
+  /** The saved URL pattern of the domain that matches this page, else one inferred from the URL alone. */
   urlPattern: string;
   policy: PolicyInfo;
   warnings: string[];
@@ -67,6 +68,7 @@ export type ExtractSuccess = PageResult & {
 export type LinkItem = {
   url: string;
   text: string;
+  /** The listing's item pattern that matches this URL, else one inferred from the URL alone. */
   urlPattern: string;
   cssPath: string;
 };
