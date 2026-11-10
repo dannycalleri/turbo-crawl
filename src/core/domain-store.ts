@@ -5,7 +5,7 @@ import type { CompactPagePacket } from "./compactPagePacket.ts";
 import { isFieldType, type FieldType, type LLMExtractionResult, type UserSchema } from "./llm-extractor/types.ts";
 import type { TemplateExtractionResult } from "./template-extractor/types.ts";
 import { inferUrlPattern } from "./templating/inferUrlPattern.ts";
-import { matchingPattern, normalizePatterns } from "./templating/urlPatterns.ts";
+import { normalizePatterns, urlMatchesPattern } from "./templating/urlPatterns.ts";
 import type { ExtractionTemplate, ListingTemplate } from "./templating/types.ts";
 import type { PagePacket } from "./types.ts";
 
@@ -262,7 +262,7 @@ export function addPatternToTemplate(templatePath: string, url: string): Promise
     const template = await readJsonFile<Record<string, unknown>>(templatePath);
     const { urlPattern: _legacy, ...rest } = template;
     const patterns = readUrlPatterns(template) ?? [];
-    if (matchingPattern(url, patterns) !== undefined) return;
+    if (urlMatchesPattern(url, patterns)) return;
     await writeJsonFile(templatePath, { ...rest, urlPatterns: normalizePatterns([...patterns, inferUrlPattern(url)]) });
   });
   patternWrites.set(templatePath, next);

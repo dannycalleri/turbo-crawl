@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { capPatterns, MAX_URL_PATTERNS, mergePatterns, normalizePatterns, templateCoversUrl, urlMatchesPattern } from "../src/core/templating/urlPatterns.ts";
+import { capPatterns, MAX_URL_PATTERNS, mergePatterns, normalizePatterns, urlMatchesPattern } from "../src/core/templating/urlPatterns.ts";
 
 describe("urlMatchesPattern", () => {
   it("matches typed placeholders inside one segment", () => {
@@ -55,11 +55,11 @@ describe("urlMatchesPattern", () => {
   });
 });
 
-describe("templateCoversUrl", () => {
-  it("is true when any stored pattern matches", () => {
-    const template = { urlPatterns: ["/news/:slug", "/:id/:id/:id/:slug"] };
-    expect(templateCoversUrl(template, "https://site.com/2026/11/04/rolex-daytona")).toBe(true);
-    expect(templateCoversUrl(template, "https://site.com/about")).toBe(false);
+describe("urlMatchesPattern with a list", () => {
+  it("is true when any pattern of the list matches", () => {
+    const patterns = ["/news/:slug", "/:id/:id/:id/:slug"];
+    expect(urlMatchesPattern("https://site.com/2026/11/04/rolex-daytona", patterns)).toBe(true);
+    expect(urlMatchesPattern("https://site.com/about", patterns)).toBe(false);
   });
 });
 

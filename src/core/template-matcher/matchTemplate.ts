@@ -1,6 +1,6 @@
 import type { TemplateMatchCandidate } from "../domain-store.ts";
 import type { TemplateExtractionResult } from "../template-extractor/types.ts";
-import { templateCoversUrl } from "../templating/urlPatterns.ts";
+import { urlMatchesPattern } from "../templating/urlPatterns.ts";
 
 export const MIN_TEXT_FIELD_LENGTH = 200;
 
@@ -97,5 +97,5 @@ function foundCount(trial: TemplateTrial): number {
 }
 
 function knowsPattern(trial: TemplateTrial, url: string): boolean {
-  return templateCoversUrl(trial.candidate.template, url);
+  return urlMatchesPattern(url, trial.candidate.template.urlPatterns);
 }
