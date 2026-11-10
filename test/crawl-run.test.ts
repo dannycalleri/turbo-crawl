@@ -189,6 +189,7 @@ describe("crawl start stub wiring", () => {
     const outcome = await startCrawl({ target: "https://example.com/final", schema: {} }, harness.options, harness.deps);
 
     expect(outcome.templateFit.matchedPattern).toBe(false);
+    expect(outcome.urlPattern).toBe("/final");
     const [saved] = (await listTemplatesForDomain(harness.store)).candidates;
     expect(saved?.template.urlPatterns).toEqual(["/news/:slug", "/final"]);
   });
@@ -226,6 +227,27 @@ describe("crawl start stub wiring", () => {
 
     expect(outcome).toMatchObject({ path: "stale-template", stale: true, missing: ["title"], llmUsed: false });
     expect(outcome.warnings.join("\n")).toContain("may have changed");
+  });
+
+  it("reports the stored typed pattern and returns a stale result on a redesigned page, with no agent call", async () => {
+    const harness = await createHarness({
+      extractResult: createTemplateExtractionResult({ payload: { title: null }, fieldResults: {} }),
+    });
+    await saveTemplate(harness.store, { ...createTemplate(), urlPatterns: ["/:page"] });
+
+    const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
+
+    expect(outcome).toMatchObject({ urlPattern: "/:page", path: "stale-template", stale: true });
+    expect(harness.authorCalls).toHaveLength(0);
+    expect(harness.providerResolutions).toBe(0);
+  });
+
+  it("reports the new template's pattern after authoring", async () => {
+    const harness = await createHarness({ authoredPatterns: ["/:page"] });
+
+    const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
+
+    expect(outcome).toMatchObject({ urlPattern: "/:page", path: "authored" });
   });
 
   it("writes no page artifacts when artifacts are off", async () => {
@@ -384,6 +406,22 @@ describe("listing pages", () => {
     expect((await readJsonFile<ListingTemplate>(saved.path)).urlPatterns).toEqual(["/category/:slug", "/final"]);
   });
 
+  it("reports a stored pattern of a template with other fields, or of a listing's items, on a detail page", async () => {
+    const harness = await createHarness({ listingLinks: () => null });
+    await saveTemplate(harness.store, { ...createTemplate(), urlPatterns: ["/news/:slug"] });
+    await saveTemplate(harness.store, { ...createTemplate({ id: "template_headline", schema: { headline: "string" } }), urlPatterns: ["/:page"] });
+
+    const byOtherFields = await startCrawl({ ...fieldsInput({ title: "string" }), expect: "detail" }, harness.options, harness.deps);
+    expect(byOtherFields).toMatchObject({ urlPattern: "/:page", path: "template-reuse" });
+
+    const listingHarness = await createHarness({ listingLinks: () => null });
+    await saveTemplate(listingHarness.store, { ...createTemplate(), urlPatterns: ["/news/:slug"] });
+    await saveListingTemplate(listingHarness.store, { ...listingTemplate, urlPatterns: ["/category/:slug"], itemUrlPattern: "/:item" });
+
+    const byListingItems = await startCrawl({ ...fieldsInput({ title: "string" }), expect: "detail" }, listingHarness.options, listingHarness.deps);
+    expect(byListingItems).toMatchObject({ urlPattern: "/:item", path: "template-reuse" });
+  });
+
   it("does not write a listing template whose typed pattern covers the URL", async () => {
     const harness = await createHarness({ linkGroups: [productGroup], listingLinks: () => links });
     const saved = await saveListingTemplate(harness.store, { ...listingTemplate, urlPatterns: ["/:page"] });
@@ -532,6 +570,7 @@ function fieldsInput(schema: Record<string, "string" | "number">): CrawlStartInp
 
 async function createHarness(config: {
   authorWarnings?: string[];
+  authoredPatterns?: string[];
   pagePacket?: Partial<PagePacket>;
   renderError?: Error;
   robots?: Record<string, RobotsStatus>;
@@ -570,7 +609,7 @@ async function createHarness(config: {
     async authorTemplate(input) {
       authorCalls.push(input);
       return {
-        template: createTemplate({ schema: input.schema }),
+        template: createTemplate({ schema: input.schema, ...(config.authoredPatterns ? { urlPatterns: config.authoredPatterns } : {}) }),
         warnings: config.authorWarnings ?? [],
         provider: input.provider.name,
         model: input.model ?? null,

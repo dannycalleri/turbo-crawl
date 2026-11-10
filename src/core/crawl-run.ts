@@ -4,7 +4,7 @@ import type { LLMProvider } from "./llm-extractor/providers/LLMProvider.ts";
 import type { UserSchema } from "./llm-extractor/types.ts";
 import type { ExtractionTemplate } from "./templating/types.ts";
 import { inferUrlPattern } from "./templating/inferUrlPattern.ts";
-import { templateCoversUrl } from "./templating/urlPatterns.ts";
+import { templateCoversUrl, urlMatchesPattern } from "./templating/urlPatterns.ts";
 import { buildPolicy, CrawlFailure, failureForStatus, type PolicyInfo } from "./policy/policy.ts";
 import { decideTemplate, missingFields, type TemplateTrial } from "./template-matcher/matchTemplate.ts";
 import type { RobotsChecker, RobotsStatus } from "./policy/robots.ts";
@@ -34,6 +34,7 @@ import {
   listListingTemplates,
   saveListingTemplate,
   saveTemplate,
+  schemasMatch,
   type DomainStore,
   type ListingTemplateArtifact,
   type ReuseDiscoveryResult,
@@ -85,6 +86,7 @@ export type ItemOutcome = PageFacts & {
 export type ListingOutcome = PageFacts & {
   kind: "listing";
   items: LinkItem[];
+  itemUrlPatterns: string[];
   paginationUrls: string[];
   linkGroups: LinkGroup[];
   llmUsed: boolean;
@@ -120,10 +122,7 @@ export type StartCrawlDependencies = {
     options?: BrowserSessionOptions,
   ): Promise<T>;
   createDomainStore(input: { targetUrl: string; rootPath?: string }): DomainStore;
-  listTemplatesForDomain(
-    store: DomainStore,
-    options: { fields?: UserSchema },
-  ): Promise<ReuseDiscoveryResult<TemplateMatchCandidate>>;
+  listTemplatesForDomain(store: DomainStore): Promise<ReuseDiscoveryResult<TemplateMatchCandidate>>;
   addPatternToTemplate(templatePath: string, urlPattern: string): Promise<void>;
   saveTemplate(
     store: DomainStore,
@@ -207,7 +206,20 @@ export async function startCrawl(
     const statusFailure = failureForStatus(finalUrl, policy, pagePacket.response.retryAfter);
     if (statusFailure) throw statusFailure;
 
-    const urlPattern = inferUrlPattern(finalUrl);
+    const saveArtifacts = (artifacts: PageArtifacts) =>
+      options.writeArtifacts === false ? Promise.resolve(null) : deps.savePageArtifacts(store, artifacts).then(folder => folder.path);
+    const [domainListings, domainTemplates] = await Promise.all([deps.listListingTemplates(store), deps.listTemplatesForDomain(store)]);
+    const storedPatterns = [
+      ...domainTemplates.candidates.flatMap(candidate => candidate.template.urlPatterns),
+      ...domainListings.candidates.flatMap(candidate => [...candidate.template.urlPatterns, candidate.template.itemUrlPattern]),
+    ];
+    const savedListings = { candidates: input.expect === "detail" ? [] : domainListings.candidates };
+    const saved = {
+      candidates: input.expect === "listing"
+        ? []
+        : domainTemplates.candidates.filter(candidate => !fieldsGiven || schemasMatch(candidate.template.schema, userSchema)),
+    };
+    const urlPattern = storedPatterns.find(pattern => urlMatchesPattern(finalUrl, pattern)) ?? inferUrlPattern(finalUrl);
     const facts: PageFacts = {
       target: input.target,
       finalUrl,
@@ -216,15 +228,7 @@ export async function startCrawl(
       urlPattern,
       policy,
     };
-    const saveArtifacts = (artifacts: PageArtifacts) =>
-      options.writeArtifacts === false ? Promise.resolve(null) : deps.savePageArtifacts(store, artifacts).then(folder => folder.path);
-    const [savedListings, saved] = await Promise.all([
-      input.expect === "detail" ? { candidates: [], warnings: [] } : deps.listListingTemplates(store),
-      input.expect === "listing"
-        ? { candidates: [], warnings: [] }
-        : deps.listTemplatesForDomain(store, { fields: fieldsGiven ? userSchema : undefined }),
-    ]);
-    const storeWarnings = [...savedListings.warnings, ...saved.warnings].map(warning => warning.message);
+    const storeWarnings = [...domainListings.warnings, ...domainTemplates.warnings].map(warning => warning.message);
     const listingCandidates = input.listingTemplatePath
       ? savedListings.candidates.filter(candidate => candidate.path === input.listingTemplatePath)
       : savedListings.candidates;
@@ -236,6 +240,7 @@ export async function startCrawl(
         ...facts,
         kind: "listing",
         ...links,
+        itemUrlPatterns: [candidate.template.itemUrlPattern],
         linkGroups: await deps.summarizeLinkGroups(page),
         llmUsed: false,
         provider: null,
@@ -357,8 +362,10 @@ export async function startCrawl(
       progress(`Saved the listing template ${listingArtifact.path}.`);
       return {
         ...facts,
+        urlPattern: classification.template.urlPatterns[0]!,
         kind: "listing",
         items: classification.items,
+        itemUrlPatterns: [classification.template.itemUrlPattern],
         paginationUrls: classification.paginationUrls,
         linkGroups: groups,
         llmUsed: true,
@@ -424,6 +431,7 @@ export async function startCrawl(
 
     return {
       ...facts,
+      urlPattern: authored.template.urlPatterns[0]!,
       kind: "item",
       schema: userSchema,
       path: "authored",

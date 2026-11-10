@@ -366,6 +366,7 @@ describe("runHeadlessCrawl", () => {
       urlPattern: "/category/clocks",
       policy: { robots: "allowed", tdmReservation: null, tdmPolicyUrl: null, xRobotsTag: null, metaRobots: null, httpStatus: 200 },
       items: ["clock-1", "clock-2"].map(slug => ({ url: `https://example.com/products/${slug}`, text: slug, cssPath: "a" })),
+      itemUrlPatterns: ["/products/:slug"],
       paginationUrls: [],
       linkGroups: [],
       llmUsed: true,

@@ -16,6 +16,7 @@ function listing(url: string, items: string[], paginationUrls: string[] = []): L
     urlPattern: "/category/clocks",
     policy,
     items: items.map(item => ({ url: item, text: "", cssPath: "a" })),
+    itemUrlPatterns: ["/products/:slug"],
     paginationUrls,
     linkGroups: [],
     llmUsed: false,

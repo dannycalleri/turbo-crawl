@@ -12,6 +12,7 @@ import { resolveProvider, type ResolvedProvider } from "./core/llm-extractor/pro
 import { CrawlFailure, failureDetails } from "./core/policy/policy.ts";
 import { createRobotsChecker, type RobotsChecker } from "./core/policy/robots.ts";
 import { inferUrlPattern } from "./core/templating/inferUrlPattern.ts";
+import { urlMatchesPattern } from "./core/templating/urlPatterns.ts";
 import type {
   CrawlError,
   Crawler,
@@ -116,7 +117,10 @@ export function createCrawler(
         if (outcome.kind !== "listing") throw new Error(`expected a listing result for ${url}`);
         return {
           ...pageResult(outcome),
-          itemUrls: outcome.items.map(item => ({ ...item, urlPattern: inferUrlPattern(item.url) })),
+          itemUrls: outcome.items.map(item => ({
+            ...item,
+            urlPattern: outcome.itemUrlPatterns.find(pattern => urlMatchesPattern(item.url, pattern)) ?? inferUrlPattern(item.url),
+          })),
           paginationUrls: outcome.paginationUrls,
           patterns: outcome.linkGroups,
         };
