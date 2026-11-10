@@ -91,7 +91,7 @@ The result goes to stdout as JSON and progress goes to stderr, so `turbo-crawl c
 
 ### Templates are chosen by content
 
-turbo-crawl renders the page first, runs every saved template of the domain on it, and keeps the one that fits. A template fits when every required field has a value, at least one of them comes from a CSS selector in the page body (meta tags alone match almost any page), and every `text` field has at least 200 characters. Use `text` for long passages such as an article body, and `string` for short values. So an article layout authored on `/news/clock-3` is reused on `/2026/11/04/clock-3` with no agent call, and the new URL pattern is added to the template.
+turbo-crawl renders the page first, runs every saved template of the domain on it, and keeps the one that fits. A template fits when every required field has a value, at least one required field has a CSS selector that reads a value on the page, even when JSON-LD or meta supplied the value (JSON-LD and meta tags alone match almost any page), and every `text` field has at least 200 characters. Use `text` for long passages such as an article body, and `string` for short values. So an article layout authored on `/news/clock-3` is reused on `/2026/11/04/clock-3` with no agent call, and the new URL pattern is added to the template.
 
 ### URL patterns
 

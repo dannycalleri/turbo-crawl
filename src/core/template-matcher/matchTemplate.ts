@@ -71,9 +71,9 @@ export function misfitReasons(trial: TemplateTrial, require: string[] | undefine
   if (empty.length > 0) reasons.push(`no value for ${empty.join(", ")}`);
 
   // Meta and JSON-LD values exist on almost every page of a site; a page-body
-  // selector is what ties the template to one layout.
-  if (!required.some(name => trial.result.fieldResults[name]?.selectorUsed?.kind === "css")) {
-    reasons.push("no required value came from the page body");
+  // selector that also reads a value is what ties the template to one layout.
+  if (!required.some(name => trial.result.fieldResults[name]?.bodyMatched)) {
+    reasons.push("no css selector of a required field reads a value on this page");
   }
 
   const short = Object.keys(schema).filter(name => {

@@ -3,7 +3,7 @@ import type { FieldType } from "../src/core/llm-extractor/types.ts";
 import { decideTemplate, type TemplateTrial } from "../src/core/template-matcher/matchTemplate.ts";
 import type { SelectorKind } from "../src/core/templating/types.ts";
 
-type FieldRead = { type: FieldType; value: unknown; kind?: SelectorKind };
+type FieldRead = { type: FieldType; value: unknown; kind?: SelectorKind; bodyMatched?: boolean };
 
 const longBody = "A watch review paragraph. ".repeat(10);
 
@@ -25,6 +25,7 @@ function trial(id: string, urlPatterns: string[], fields: Record<string, FieldRe
             rawValue: field.value === null ? null : String(field.value),
             normalizedValue: field.value,
             selectorUsed: field.value === null ? null : { kind: field.kind ?? "css", selector: "x", attribute: "textContent", score: 90, reusable: true },
+            bodyMatched: field.bodyMatched ?? (field.value !== null && (field.kind ?? "css") === "css"),
             confidence: 0.9,
             warnings: [],
             candidatesTried: [],
@@ -121,6 +122,21 @@ describe("decideTemplate", () => {
       .toBe("stale");
     expect(decideTemplate([redesigned], { url: "https://www.watches.example/rolex/rolex-submariner--mod1.htm", fieldsGiven: false }).kind)
       .toBe("none");
+  });
+
+  it("fits with values from JSON-LD when a css selector of a required field also reads a value", () => {
+    const fromJsonLd = {
+      headline: { type: "string" as const, value: "Rolex Daytona", kind: "jsonld" as const, bodyMatched: true },
+      body: { type: "text" as const, value: longBody, kind: "jsonld" as const },
+    };
+    const noBody = { ...fromJsonLd, headline: { ...fromJsonLd.headline, bodyMatched: false } };
+    const url = "https://site.com/news/some-story";
+
+    expect(decideTemplate([trial("a", ["/news/:slug"], fromJsonLd)], { url, fieldsGiven: false }).kind).toBe("fit");
+    expect(decideTemplate([trial("a", ["/news/:slug"], noBody)], { url, fieldsGiven: false })).toMatchObject({
+      kind: "stale",
+      reasons: ["no css selector of a required field reads a value on this page"],
+    });
   });
 
   it("says why a stale template no longer fits when every field has a value", () => {

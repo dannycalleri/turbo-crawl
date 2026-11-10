@@ -18,6 +18,8 @@ export type FieldExtractionResult = {
     normalizedValue: unknown;
 
     selectorUsed: SelectorCandidate | null;
+    /** True when a css selector of the field reads a valid value on the page, whichever selector supplied the value. */
+    bodyMatched: boolean;
 
     confidence: number;
     warnings: string[];

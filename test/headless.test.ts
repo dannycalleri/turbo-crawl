@@ -82,6 +82,7 @@ function outcome(input: CrawlStartInput): CrawlOutcome {
           rawValue: "Clock",
           normalizedValue: "Clock",
           selectorUsed: { kind: "css", selector: "h1", attribute: "textContent", score: 90, reusable: true },
+          bodyMatched: true,
           confidence: 90,
           warnings: [],
           candidatesTried: [],

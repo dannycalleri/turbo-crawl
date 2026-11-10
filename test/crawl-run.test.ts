@@ -132,6 +132,7 @@ function createTemplateExtractionResult(
         rawValue: "Fixture",
         normalizedValue: "Fixture",
         selectorUsed: { kind: "css", selector: "h1", attribute: "textContent", score: 90, reusable: true },
+        bodyMatched: true,
         confidence: 0.9,
         warnings: [],
         candidatesTried: [],
@@ -448,7 +449,7 @@ describe("listing pages", () => {
       extractResult: createTemplateExtractionResult({
         payload: { title: null },
         fieldResults: {
-          title: { fieldName: "title", type: "string", rawValue: null, normalizedValue: null, selectorUsed: null, confidence: 0, warnings: [], candidatesTried: [] },
+          title: { fieldName: "title", type: "string", rawValue: null, normalizedValue: null, selectorUsed: null, bodyMatched: false, confidence: 0, warnings: [], candidatesTried: [] },
         },
       }),
     });
@@ -464,7 +465,7 @@ describe("listing pages", () => {
     const stale = createTemplateExtractionResult({
       payload: { title: null },
       fieldResults: {
-        title: { fieldName: "title", type: "string", rawValue: null, normalizedValue: null, selectorUsed: null, confidence: 0, warnings: [], candidatesTried: [] },
+        title: { fieldName: "title", type: "string", rawValue: null, normalizedValue: null, selectorUsed: null, bodyMatched: false, confidence: 0, warnings: [], candidatesTried: [] },
       },
     });
     const harness = await createHarness({

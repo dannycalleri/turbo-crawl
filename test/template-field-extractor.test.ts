@@ -137,6 +137,27 @@ describe("extractFieldWithTemplate", () => {
     ]);
   });
 
+  it("keeps a JSON-LD value and marks the field body-matched when a css selector also reads a value", async () => {
+    const jsonLd = selector({ kind: "jsonld", selector: "jsonld_01:$.name", attribute: "json" });
+    const css = selector({ selector: "main h1" });
+    const pagePacket = createPagePacket({ jsonLd: [{ nodeId: "jsonld_01", type: "Product", raw: "{}", data: { name: "Watch from JSON-LD" } }] });
+
+    const matched = await extractFieldWithTemplate({
+      page: createFakePage({ "main h1": [{ textContent: "Watch on the page" }] }),
+      pagePacket,
+      field: field({ selectors: [jsonLd, css] }),
+    });
+    const notMatched = await extractFieldWithTemplate({
+      page: createFakePage({}),
+      pagePacket,
+      field: field({ selectors: [jsonLd, css] }),
+    });
+
+    expect(matched).toMatchObject({ normalizedValue: "Watch from JSON-LD", selectorUsed: jsonLd, bodyMatched: true });
+    expect(matched.candidatesTried).toHaveLength(1);
+    expect(notMatched).toMatchObject({ normalizedValue: "Watch from JSON-LD", selectorUsed: jsonLd, bodyMatched: false });
+  });
+
   it("falls back to the next selector when the first candidate is invalid", async () => {
     const missingSelector = selector({ selector: ".missing", score: 90 });
     const priceSelector = selector({ selector: ".price", score: 80 });
@@ -340,6 +361,7 @@ describe("extractFieldWithTemplate", () => {
       rawValue: null,
       normalizedValue: null,
       selectorUsed: null,
+      bodyMatched: false,
       confidence: 0,
       warnings: ["No selectors available for field: brand"],
       candidatesTried: [],
