@@ -96,9 +96,11 @@ export function normalizePatterns(patterns: string[]): string[] {
     return capPatterns(mergePatterns(patterns.map(normalizePattern)));
 }
 
+// Only a pattern with no placeholder is a raw per-page path from an old file. A pattern
+// with placeholders was already generalized, by the agent or the heuristic, and stays as it is.
 function normalizePattern(pattern: string): string {
     const [path, query] = pattern.split("?");
-    if (!path!.startsWith("/")) return pattern;
+    if (!path!.startsWith("/") || new RegExp(PLACEHOLDER.source).test(pattern)) return pattern;
     const inferred = inferUrlPattern(`https://pattern.invalid${path}`);
     return query === undefined ? inferred : `${inferred}?${query}`;
 }
