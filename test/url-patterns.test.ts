@@ -33,6 +33,11 @@ describe("urlMatchesPattern", () => {
     expect(urlMatchesPattern("https://site.com/montres/montre-%C3%A9l%C3%A9gante", "/montres/montre-élégante")).toBe(true);
   });
 
+  it("keeps an encoded colon as literal text", () => {
+    expect(urlMatchesPattern("https://wiki.example/wiki/Category:books", "/wiki/Category%3Abooks")).toBe(true);
+    expect(urlMatchesPattern("https://wiki.example/wiki/Category:anything", "/wiki/Category%3Abooks")).toBe(false);
+  });
+
   it("reads patterns written by older versions", () => {
     expect(urlMatchesPattern("https://bookshop.example/catalogue/sapiens_996/index.html", "/catalogue/:slug/index.html")).toBe(true);
     expect(urlMatchesPattern("https://site.com/assets/a1b2c3d4e5.html", "/assets/:hash")).toBe(true);

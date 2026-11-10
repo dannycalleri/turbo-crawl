@@ -37,21 +37,29 @@ function compilePattern(pattern: string): CompiledPattern | null {
     const [path, queryText, ...rest] = pattern.split("?");
     if (rest.length > 0) return null;
 
-    const pairs = queryText ? queryText.split("&") : [];
-    if (pairs.some(pair => pair.indexOf("=") <= 0)) return null;
-    const query = [...new URLSearchParams(queryText ?? "")].map(([key, value]) => ({ key, value: compilePart(value) }));
+    const query: CompiledPattern["query"] = [];
+    for (const pair of queryText ? queryText.split("&") : []) {
+        const separator = pair.indexOf("=");
+        if (separator <= 0) return null;
+        query.push({ key: decodeQueryText(pair.slice(0, separator)), value: compilePart(pair.slice(separator + 1), decodeQueryText) });
+    }
 
-    return { segments: path!.split("/").filter(Boolean).map(segment => compilePart(decode(segment))), query };
+    return { segments: path!.split("/").filter(Boolean).map(segment => compilePart(segment, decode)), query };
 }
 
-function compilePart(text: string): RegExp {
+// Placeholders are found before decoding, so an encoded colon (%3A) stays literal text.
+function compilePart(raw: string, decodeText: (text: string) => string): RegExp {
     let source = "";
     let last = 0;
-    for (const match of text.matchAll(PLACEHOLDER)) {
-        source += escapeRegExp(text.slice(last, match.index)) + (match[1] === "id" ? "\\d+" : "[^/]+?");
+    for (const match of raw.matchAll(PLACEHOLDER)) {
+        source += escapeRegExp(decodeText(raw.slice(last, match.index))) + (match[1] === "id" ? "\\d+" : "[^/]+?");
         last = match.index + match[0].length;
     }
-    return new RegExp(`^${source}${escapeRegExp(text.slice(last))}$`);
+    return new RegExp(`^${source}${escapeRegExp(decodeText(raw.slice(last)))}$`);
+}
+
+function decodeQueryText(text: string): string {
+    return decode(text.replace(/\+/g, " "));
 }
 
 function decode(text: string): string {
