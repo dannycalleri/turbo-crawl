@@ -103,6 +103,10 @@ describe("normalizePatterns", () => {
     ])).toEqual(["/:slug/:slug"]);
   });
 
+  it("does not generalize a literal segment of a pattern that has placeholders", () => {
+    expect(normalizePatterns(["/en-us/:slug", "/news/2024/:slug"])).toEqual(["/en-us/:slug", "/news/2024/:slug"]);
+  });
+
   it("keeps typed patterns and query parts as they are", () => {
     expect(normalizePatterns(["/:brand/:slug--id:id.htm", "/index.php?product_id=:id&route=product/product"]))
       .toEqual(["/:brand/:slug--id:id.htm", "/index.php?product_id=:id&route=product/product"]);
