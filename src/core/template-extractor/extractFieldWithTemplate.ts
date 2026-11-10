@@ -57,13 +57,18 @@ export async function extractFieldWithTemplate(input: {
         candidatesTried.push(candidate);
 
         if (candidate.valid) {
+            let bodyMatched = selector.kind === "css";
+            for (const later of input.field.selectors.slice(index + 1)) {
+                if (bodyMatched) break;
+                bodyMatched = later.kind === "css" && (await tryCandidate(later)).valid;
+            }
             return {
                 fieldName: input.field.fieldName,
                 type: input.field.type,
                 rawValue: candidate.rawValue,
                 normalizedValue: candidate.normalizedValue,
                 selectorUsed: selector,
-                bodyMatched: selector.kind === "css" || await anyCssSelectorReads(input.field.selectors.slice(index + 1), tryCandidate),
+                bodyMatched,
                 confidence: candidate.confidence,
                 warnings: candidate.warnings,
                 candidatesTried,
@@ -89,16 +94,6 @@ export async function extractFieldWithTemplate(input: {
                 : [`No selectors available for field: ${input.field.fieldName}`],
         candidatesTried,
     };
-}
-
-async function anyCssSelectorReads(
-    selectors: SelectorCandidate[],
-    tryCandidate: (selector: SelectorCandidate) => Promise<CandidateExtraction>,
-): Promise<boolean> {
-    for (const selector of selectors) {
-        if (selector.kind === "css" && (await tryCandidate(selector)).valid) return true;
-    }
-    return false;
 }
 
 function selectLearnedNumberValue(input: {
