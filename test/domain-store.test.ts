@@ -268,20 +268,46 @@ describe("domain store foundational helpers", () => {
     expect(schemasMatch({ title: "string", price: "number" }, { price: "number", title: "string" })).toBe(true);
   });
 
-  it("adds a URL pattern by rewriting the same file, once per pattern", async () => {
+  it("records the per-URL pattern of an uncovered page by rewriting the same file, and merges the list", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({ targetUrl: "https://marketplace.com/products/example", rootPath });
     const { path: templatePath } = await saveTemplate(store, createTemplate());
 
     await Promise.all([
-      addPatternToTemplate(templatePath, "/p/:slug"),
-      addPatternToTemplate(templatePath, "/:id/:id/:id/:slug"),
-      addPatternToTemplate(templatePath, "/p/:slug"),
+      addPatternToTemplate(templatePath, "https://marketplace.com/p/rolex-daytona"),
+      addPatternToTemplate(templatePath, "https://marketplace.com/2026/11/04/rolex-daytona"),
+      addPatternToTemplate(templatePath, "https://marketplace.com/p/omega-speedmaster"),
     ]);
 
     const saved = await readJsonFile<ExtractionTemplate>(templatePath);
-    expect(saved.urlPatterns).toEqual(["/products/:slug", "/p/:slug", "/:id/:id/:id/:slug"]);
+    expect(saved.urlPatterns).toEqual(["/:slug/:slug", "/:id/:id/:id/:slug"]);
     expect((await listTemplatesForDomain(store)).candidates).toHaveLength(1);
+  });
+
+  it("does not rewrite a template whose patterns cover the URL", async () => {
+    const rootPath = await createTempDir();
+    const store = createDomainStore({ targetUrl: "https://marketplace.com/products/example", rootPath });
+    const { path: templatePath } = await saveTemplate(store, { ...createTemplate(), urlPatterns: ["/:brand/:slug--id:id.htm"] });
+    const before = (await stat(templatePath)).mtimeMs;
+
+    await addPatternToTemplate(templatePath, "https://marketplace.com/omega/omega-speedmaster--id50011122.htm");
+
+    expect((await stat(templatePath)).mtimeMs).toBe(before);
+    expect((await readJsonFile<ExtractionTemplate>(templatePath)).urlPatterns).toEqual(["/:brand/:slug--id:id.htm"]);
+  });
+
+  it("keeps at most 2 patterns after 50 fits on listings of several brands", async () => {
+    const rootPath = await createTempDir();
+    const store = createDomainStore({ targetUrl: "https://www.watches.example/rolex/rolex-daytona--id1.htm", rootPath });
+    const { path: templatePath } = await saveTemplate(store, { ...createTemplate(), urlPatterns: ["/rolex/:slug"] });
+    const brands = ["rolex", "omega", "tudor", "cartier", "seiko"];
+
+    for (let index = 0; index < 50; index += 1) {
+      const brand = brands[index % brands.length]!;
+      await addPatternToTemplate(templatePath, `https://www.watches.example/${brand}/${brand}-model-${index}--id${50_000_000 + index}.htm`);
+    }
+
+    expect((await readJsonFile<ExtractionTemplate>(templatePath)).urlPatterns).toEqual(["/:slug/:slug"]);
   });
 
   it("reads a template written with a single urlPattern as a one-entry urlPatterns list", async () => {
