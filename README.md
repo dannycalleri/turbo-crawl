@@ -1,11 +1,39 @@
-# turbo-crawl
+<h1 align="center">turbo-crawl</h1>
 
-Turn any web page into structured JSON without writing selectors.
+<p align="center"><strong>Turn any web page into structured JSON, without writing selectors.</strong></p>
 
-The first time turbo-crawl sees a page layout, it asks a coding agent you already use (**Claude Code** or **Codex**) to read the page's structure and write an extraction template: CSS, JSON-LD, meta or table selectors for each field. Every selector is checked on the live page, and any that fail go back to the agent to fix. After that, every page with the same layout is scraped with the saved template, whatever its URL, with **no model call**: it's fast, free and deterministic.
+<p align="center">
+  <a href="https://www.npmjs.com/package/@fragmentoid/turbo-crawl"><img alt="npm" src="https://img.shields.io/npm/v/@fragmentoid/turbo-crawl?label=npm&color=CB3837"></a>
+  <a href="https://github.com/dannycalleri/turbo-crawl/actions/workflows/release.yml"><img alt="Build" src="https://img.shields.io/github/actions/workflow/status/dannycalleri/turbo-crawl/release.yml?branch=main&label=build"></a>
+  <a href="https://www.npmjs.com/package/@fragmentoid/turbo-crawl"><img alt="npm provenance" src="https://img.shields.io/badge/provenance-signed-2EA44F?logo=npm"></a>
+  <img alt="Node 20" src="https://img.shields.io/badge/node-%E2%89%A520-339933?logo=nodedotjs&logoColor=white">
+  <img alt="Works with Claude Code and Codex" src="https://img.shields.io/badge/agents-Claude%20Code%20%C2%B7%20Codex-D97757">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/dannycalleri/turbo-crawl?color=blue"></a>
+</p>
+
+<p align="center">
+  <a href="#get-started">Get started</a> ·
+  <a href="#examples">Examples</a> ·
+  <a href="docs/reference.md">Reference</a> ·
+  <a href="docs/upgrading.md">Upgrading</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
+
+The first time turbo-crawl sees a page layout, it asks a coding agent you already use (**Claude Code** or **Codex**) to write an extraction template: CSS, JSON-LD, meta or table selectors for each field. Every selector is checked on the live page, and the ones that fail go back to the agent to fix. After that, every page with the same layout is read with the saved template, with **no model call**.
+
+## Get started
+
+You need Node.js 20 or later, and one template author, installed and logged in: [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude`, the default) or the [Codex CLI](https://github.com/openai/codex) (`codex`). A local [LM Studio](https://lmstudio.ai) server works too, with `--provider lmstudio`. The agent is needed only where a template is written.
+
+```sh
+npm install -g @fragmentoid/turbo-crawl
+npx playwright install chromium
+```
+
+Crawl a product page and name the fields you want:
 
 ```console
-$ npx @fragmentoid/turbo-crawl crawl https://bookshop.example/catalogue/a-light-in-the-attic_1000/index.html \
+$ turbo-crawl crawl https://bookshop.example/catalogue/a-light-in-the-attic_1000/index.html \
     --fields title:string,price:number,availability:string,upc:string
 Rendering https://bookshop.example/catalogue/a-light-in-the-attic_1000/index.html…
 Using claude to write the template.
@@ -24,9 +52,12 @@ Asking claude to write selectors for 4 fields…
   },
   ...
 }
+```
 
-$ npx @fragmentoid/turbo-crawl crawl https://bookshop.example/catalogue/sapiens-a-brief-history-of-humankind_996/index.html
-Rendering https://bookshop.example/catalogue/sapiens-a-brief-history-of-humankind_996/index.html…
+Crawl another page with the same layout. The saved template reads it, and no model is called:
+
+```console
+$ turbo-crawl crawl https://bookshop.example/catalogue/sapiens-a-brief-history-of-humankind_996/index.html
 Extracted with the saved template data/bookshop.example/templates/dc69babc39c9291d.json.
 {
   "ok": true,
@@ -37,134 +68,46 @@ Extracted with the saved template data/bookshop.example/templates/dc69babc39c929
 }
 ```
 
-turbo-crawl also works as a Node library, for jobs that must never call a model: author templates on your machine, commit them, and extract in CI with `authoring: "never"`.
+You can also run it without installing: `npx @fragmentoid/turbo-crawl crawl <url> ...`.
 
-## Requirements
+## Why turbo-crawl
 
-- Node.js 20 or later.
-- Chromium for Playwright: `npx playwright install chromium`.
-- One template author, only where templates are written:
-  - [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude`), installed and logged in. This is the default.
-  - or [Codex CLI](https://github.com/openai/codex) (`codex`), installed and logged in.
-  - or a local [LM Studio](https://lmstudio.ai) server, via `--provider lmstudio`.
+| | |
+|---|---|
+| **One model call per layout, not per page.** | The agent writes a template once. Every later page with that layout is read in a browser with no model call: fast, free and the same every time. |
+| **No selectors to write or maintain.** | Name the fields and their types, or let the agent suggest them. The agent writes the selectors; turbo-crawl runs each one on the live page and sends the failures back for repair. |
+| **Templates follow the content, not the URL.** | A template is used on every page where its fields read valid values, whatever the URL. When a known kind of page stops fitting, the result is marked `stale`, so you know the site changed. |
+| **Whole listings, with pagination.** | Point it at a category or search page, and it extracts every item and follows the next pages, as one JSON line per item. |
+| **Your agent, your login.** | It runs Claude Code or Codex in headless mode with no tools and no access to your files, and sends only a text outline of the page. There are no API keys to configure. |
+| **Polite by default.** | It sends an honest user agent, respects robots.txt and reports each page's TDM and robots signals in the result. |
+| **Templates are plain JSON.** | Review them, fix a selector by hand, commit them, and extract in CI with no agent at all. |
 
-turbo-crawl runs the agent CLIs in headless mode with no tools and no access to your files. It sends them only a text outline of the page, and uses your existing login, so there are no API keys to configure.
+## Examples
 
-## Install
+**Let the agent choose the fields.** Leave out `--fields`, and the agent suggests the fields for the page:
 
-```bash
-npm install -g @fragmentoid/turbo-crawl   # provides the `turbo-crawl` command
-npx playwright install chromium
+```sh
+turbo-crawl crawl https://news.example/2026/11/04/clock-3
 ```
 
-Or run it without installing: `npx @fragmentoid/turbo-crawl crawl <url> ...`. `playwright` (1.50 or later) is a peer dependency; npm installs it for you.
-
-## Usage
-
-```bash
-turbo-crawl crawl <url> [options]
-```
-
-| Option | Description |
-| --- | --- |
-| `--fields name:type,...` | Fields to extract. Types: `string`, `text`, `number`, `boolean`, `date`, `url`. Omit it and the agent suggests fields for the page. |
-| `--require name,...` | Fields that must have a value for a saved template to fit. Default: all of the template's fields. |
-| `--no-author` | Never call an agent. When no saved template fits, exit 3. Without an agent, only a saved listing template can recognize a listing page. |
-| `--provider <name>` | `auto` (default), `claude`, `codex` or `lmstudio`. `auto` picks `claude` if it is installed, otherwise `codex`. |
-| `--model <id>` | Model passed to the provider (e.g. `sonnet` or `opus` for Claude). Defaults to the provider's own default. |
-| `--max-repairs <n>` | How many times the agent may fix failing selectors. Default `2`. |
-| `--user-agent <ua>` | User agent for page and robots.txt requests. See [User agent](#user-agent). |
-| `--ignore-robots` | Do not check robots.txt. Use it only with the site's permission. |
-| `--data-dir <path>` | Where templates and results are stored. Default `./data`. |
-| `--no-artifacts` | Save only templates, not the page packets and results. |
-| `--json` | Accepted for compatibility. The result is always JSON. |
-
-The result goes to stdout as JSON and progress goes to stderr, so `turbo-crawl crawl <url> --fields ... > item.json` works as expected. Errors are JSON on stdout too: `{ "ok": false, "code": "...", "message": "..." }`. The exception is an unknown option or a missing URL: the CLI prints a plain message on stderr and exits 2.
-
-| Exit code | Meaning |
-| --- | --- |
-| `0` | Success. |
-| `1` | The page failed (`BLOCKED`, `HTTP_ERROR`, `TIMEOUT`, `AMBIGUOUS_TEMPLATE`) or another error. |
-| `2` | Invalid arguments or an invalid config file. |
-| `3` | `TEMPLATE_MISSING`: no saved template fits and authoring is off. |
-| `4` | `ROBOTS_DISALLOWED`: robots.txt disallows the URL for this user agent. |
-
-### Templates are chosen by content
-
-turbo-crawl renders the page first, runs every saved template of the domain on it, and keeps the one that fits. A template fits when every required field has a value, at least one required field has a CSS selector that reads a value on the page, even when JSON-LD or meta supplied the value (JSON-LD and meta tags alone match almost any page), and every `text` field has at least 200 characters. Use `text` for long passages such as an article body, and `string` for short values. So an article layout authored on `/news/clock-3` is reused on `/2026/11/04/clock-3` with no agent call, and the new URL pattern is added to the template.
-
-### URL patterns
-
-A URL pattern says which pages are the same kind of page. turbo-crawl uses it to tell a changed layout from a different page, and to keep a related-products block from turning a product page into a listing.
-
-- **The agent writes the pattern.** When it authors a template, the agent also returns a pattern with placeholders, such as `/:brand/:slug--id:id.htm`, plus example links from the page of the same type and of other types. turbo-crawl accepts the pattern only when the page URL and every same-type example match it, no other-type example matches it, and every example is a real link on the page. Otherwise the agent gets a repair round; if the pattern still fails, the template uses a pattern inferred from the URL alone, and the result has a warning. `:id` stands for digits; any other placeholder stands for text without `/`. Extra query keys in a URL do not stop a match.
-- **Patterns grow only by fits.** When a template fits a page that none of its patterns match, turbo-crawl adds a pattern for that page, merges patterns that differ in one path segment (`/rolex/:slug` and `/omega/:slug` become `/:slug/:slug`), and keeps at most 20.
-- **Stale results.** When no template fits, but a template has a pattern that the page URL matches, the result is marked `"stale": true` with a warning that names the reason: the site layout has probably changed, and the template should be authored again. A listing template that fits the page wins over a stale result.
-
-### Listing pages
-
-Point turbo-crawl at a category, archive or search page and it extracts every item, following the pagination, up to `--max-items`:
+**Crawl a listing.** Every item of a category page, following its next pages, as NDJSON:
 
 ```console
 $ turbo-crawl crawl https://bookshop.example/catalogue/category/books/mystery_3/index.html \
     --fields title:string,price:number --max-items 25 > books.ndjson
-…
 Crawled 2 listing page(s): 25 item(s) extracted, 0 failed.
 
 $ head -1 books.ndjson
 {"ok":true,"kind":"item","url":"https://bookshop.example/catalogue/sharp-objects_997/index.html","data":{"title":"Sharp Objects","price":47.82},...}
 ```
 
-- **Recognizing a listing.** When no saved template fits a page or gives a stale result, and authoring is on, turbo-crawl asks the agent if the page is a listing. For a listing, the agent writes link selectors for the items, the next page and the numbered pages, plus the URL pattern of the listing pages and of the item pages. An item selector passes when at least 2 of its links match the item pattern; other links it reads are dropped. Everything is checked on the live page and saved as a listing template in `data/<domain>/listings/`. Later listing pages with the same layout, on this or other categories, are read with no agent call. A page whose URL matches a listing's item pattern is never read as a listing.
-- **Following it.** Each item is extracted as a detail page. When `--fields` is not given, the fields the agent suggests for the first item are used for all of them. All the items of a listing page are extracted before the next listing page is read. Pagination pages are read with the start page's listing template.
-- **Staying polite.** Each URL is visited once (ignoring the fragment and `utm_*` parameters), only on the start URL's host, with robots.txt checked for every page.
+**Never call a model.** With `--no-author`, only saved templates are used. When none fits, the CLI exits 3:
 
-| Option | Description |
-| --- | --- |
-| `--max-pages <n>` | Most listing pages to read, the first one included. Default `10`. |
-| `--max-items <n>` | Most items to try, extracted or failed. Default `200`. |
-| `--delay-ms <n>` | Milliseconds to wait between two page requests. Default `250`. |
-| `--no-follow` | Print only the listing's links, as one JSON object: `{ "ok": true, "kind": "listing", "itemUrls": [...], "paginationUrls": [...], "templateFit": {...}, ... }`. |
-
-The output is one JSON line per item (NDJSON). A failed item gives a line with `"ok": false`, its `url`, `code` and `message`, and the crawl goes on. A summary goes to stderr. The command exits 0 when at least one item was extracted, and 1 when none was.
-
-### User agent
-
-turbo-crawl identifies itself honestly. It sends the first user agent it finds in:
-
-1. `--user-agent`;
-2. `userAgent` in the nearest `turbo-crawl.json`, searched from the current folder up to the git root;
-3. `userAgent` in `$XDG_CONFIG_HOME/turbo-crawl/config.json` (default `~/.config/turbo-crawl/config.json`);
-4. `turbo-crawl/<version> (+https://github.com/dannycalleri/turbo-crawl)`.
-
-```json
-{ "userAgent": "MyBot/1.0 (+https://example.com/bot)" }
+```sh
+turbo-crawl crawl https://bookshop.example/catalogue/sharp-objects_997/index.html --no-author --data-dir templates
 ```
 
-An invalid config file stops the run with an error that names the file.
-
-### robots.txt and policy signals
-
-Before it renders a page, turbo-crawl reads the host's robots.txt with the same user agent, and again after a redirect to another URL. A disallowed URL is never fetched. Every result has a `policy` object with the robots.txt verdict, the HTTP status, the `X-Robots-Tag` header, the robots meta tag, and the TDM reservation signals (`tdm-reservation`, `tdm-policy`). TDM signals are reported, not enforced: what you do with them is your decision.
-
-### Environment variables
-
-| Variable | Purpose |
-| --- | --- |
-| `TURBO_CRAWL_PROVIDER` | Default provider when `--provider` is not given. |
-| `TURBO_CRAWL_MODEL` | Default model. |
-| `TURBO_CRAWL_DATA_DIR` | Default data directory. |
-| `TURBO_CRAWL_LLM_TIMEOUT_MS` | Timeout for one agent call (default `600000`). |
-| `TURBO_CRAWL_SKELETON_BYTES` | Size budget of the page outline sent to the agent (default `120000`). |
-| `TURBO_CRAWL_CLAUDE_BIN`, `TURBO_CRAWL_CODEX_BIN` | Path to a specific `claude` or `codex` binary. |
-| `TURBO_CRAWL_LMSTUDIO_URL` | LM Studio base URL (default `http://localhost:1234`). |
-
-## Library
-
-```bash
-npm install @fragmentoid/turbo-crawl playwright
-npx playwright install chromium
-```
+**Use it from Node.** Author templates on your machine, commit them, and extract in CI with `authoring: "never"`:
 
 ```ts
 import { createCrawler } from "@fragmentoid/turbo-crawl";
@@ -175,11 +118,11 @@ const crawler = createCrawler({
   authoring: "never",                                    // never start an agent
 });
 
-const index = await crawler.links("https://site.example/news");
+const index = await crawler.links("https://news.example/archive");
 if (index.ok) {
   for (const item of index.itemUrls) {
     const article = await crawler.extract(item.url, { require: ["headline", "body"] });
-    if (article.ok) console.log(article.canonicalUrl, article.data, article.missing);
+    if (article.ok) console.log(article.canonicalUrl, article.data);
     else console.error(article.code, article.message);
   }
 }
@@ -187,75 +130,40 @@ if (index.ok) {
 await crawler.close();
 ```
 
-- **`createCrawler(options)`**: `dataDir`, `userAgent` and `authoring` (`"never"` or `"allowed"`) are required. Optional: `respectRobots` (default `true`), `writeArtifacts` (default `false`), `navigationTimeoutMs` (30000), `settleTimeoutMs` (10000) and `maxConcurrentPages` (4). The library reads no config files. One crawler shares one browser; calls may run at the same time, and calls beyond `maxConcurrentPages` wait their turn.
-- **`extract(url, { fields?, require? })`** treats the page as a detail page and resolves to `{ ok: true, data, missing, stale, canonicalUrl, fetchedAt, urlPattern, policy, templateFit, warnings, ... }`.
-- **`links(url)`** treats the page as a listing and resolves to `{ ok: true, itemUrls: [{ url, text, urlPattern, cssPath }], paginationUrls, patterns, ... }`.
-- **Errors resolve** to `{ ok: false, code, message, policy }` with a code from `TEMPLATE_MISSING`, `ROBOTS_DISALLOWED`, `BLOCKED` (with `retryAfterSeconds`), `HTTP_ERROR`, `TIMEOUT` and `AMBIGUOUS_TEMPLATE`. A call rejects only for invalid arguments, a missing Chromium, or an agent failure when authoring is `"allowed"`.
-- **`close()`** waits for running calls, then closes the browser.
-
-Every result has `schemaVersion: 1`. The types ship with the package.
+Install it in a project with `npm install @fragmentoid/turbo-crawl playwright`.
 
 ## How it works
 
-1. **Render.** Playwright opens the page in headless Chromium, waits for the network to settle and dismisses cookie banners.
-2. **Match.** Saved listing templates and field templates of the domain run on the page; the one that fits the content is used, and no model is called.
-3. **Classify.** Otherwise, the agent decides whether the page is a listing and writes its link selectors and URL patterns. `crawler.extract()` and the items of a followed listing skip this step: they are always detail pages.
-4. **Author.** For a detail page, the agent gets the field list, the page's JSON-LD, meta tags and tables, its same-site links, and a compact outline of the DOM (tags, ids, stable classes, semantic attributes, short text). It returns up to four ordered selectors per field and the page's URL pattern.
-5. **Validate and repair.** Each selector runs on the live page and its value is normalized to the field type. Dates are kept only in machine-readable forms (ISO 8601, RFC 2822, Unix time). Fields with no working selector go back to the agent, along with what each selector actually read. Fields that still fail are left `null` with a warning.
-6. **Save.** The template is saved and the page is extracted with it, so the first page and every later page go through the same extraction code.
-
-### Data layout
-
-```
-data/<domain>/
-  templates/<id>.json              field templates, each with the URL patterns it fitted
-  listings/<id>.json               listing templates
-  packets/<url-hash>/
-    packet.json                    what was captured from the page
-    packet.llm.json                the agent exchange, when a template was authored
-    result.json                    the extraction result
+```mermaid
+flowchart LR
+    render["Render the page<br/>in Chromium"] --> match{"Does a saved<br/>template fit?"}
+    match -- yes --> extract["Extract<br/>no model call"]
+    match -- no --> author["Agent writes<br/>the selectors"]
+    author --> validate["Run each selector<br/>on the live page"]
+    validate -- failures --> author
+    validate --> save["Save the template"] --> extract
 ```
 
-Templates are plain JSON. You can review them, edit selectors by hand, or commit them next to your code.
+The [reference](docs/reference.md#how-it-works) has the details of each step.
 
-## Upgrading from 0.3
+## Documentation
 
-Version 0.4 changes how URL patterns are made and used:
+- [Reference](docs/reference.md): every CLI option, exit codes, listing pages, how a template is chosen, URL patterns, user agent, robots.txt, environment variables, the library API and the data layout.
+- [Upgrading](docs/upgrading.md): what changed in 0.2 and 0.4.
+- [Changelog](CHANGELOG.md).
 
-- **The agent writes URL patterns.** `urlPattern` in results can now hold placeholders inside a segment and query keys, such as `/:brand/:slug--id:id.htm` or `/search/index.htm?query=:q`. `templateFit.matchedPattern` is `true` when one of the template's patterns matches the URL.
-- **`stale: true` on more sites.** Sites whose URLs differ for every page, such as marketplaces, now get stale results when their layout changes, instead of a new template.
-- **One more agent call when a detail page is authored.** The CLI now always asks the agent whether a new page is a listing before it authors a template. `crawler.extract()`, the items of a followed listing, and a URL that matches a saved listing's item pattern do not make this call.
-- **Old template files load with merged patterns.** A template whose `urlPatterns` grew by one entry per page loads as a short list, and is saved that way on its next update. Listing templates store `itemUrlPatterns` and still write `itemUrlPattern`, so 0.3 can read them.
-- **Duplicate templates.** If a page now fails with `AMBIGUOUS_TEMPLATE` because an old and a new template both fit, delete the older file in `data/<domain>/templates/`.
+## Contributing
 
-## Upgrading from 0.1
-
-Version 0.2 changes some defaults and outputs:
-
-- **The TUI is gone.** `turbo-crawl crawl` always runs headless, and `--tui` is now an unknown option (exit 2).
-- **Honest user agent.** Requests send `turbo-crawl/<version> (+https://github.com/dannycalleri/turbo-crawl)` instead of a Chrome user agent. Set your own with `--user-agent`, `turbo-crawl.json` or `~/.config/turbo-crawl/config.json`.
-- **robots.txt is respected.** A disallowed URL is not fetched and the CLI exits 4. `--ignore-robots` turns the check off.
-- **Templates are chosen by page content, not by URL pattern.** Template files are now `templates/<id>.json` with a list of `urlPatterns`. Files from 0.1.0 (one `urlPattern`) are still read. A `text` field must now have at least 200 characters for a template to fit: use `string` for short values.
-- **New exit codes and JSON errors.** Errors print `{ "ok": false, "code", "message" }` on stdout (an unknown option or a missing URL still prints plain text on stderr, exit 2). Exit 3 is `TEMPLATE_MISSING`, exit 4 is `ROBOTS_DISALLOWED`. HTTP 401, 403 and 429 give `BLOCKED`; other 4xx and 5xx give `HTTP_ERROR`.
-- **Dates in prose are not parsed.** A `date` field keeps only machine-readable dates (ISO 8601, RFC 2822, Unix time); `4 novembre 2026` becomes `null`.
-- **`playwright` is a peer dependency** (`>=1.50 <2`). npm 7 and later install it for you.
-
-## Development
-
-```bash
+```sh
 bun install
-bun run dev crawl <url>       # run from source
+bun run dev crawl <url>   # run from source
 bun run typecheck
-bun run test                  # plain, browser and e2e tests, in three processes
-bun run build                 # dist/cli.js and dist/lib.js, run on Node
+bun run test              # plain, browser and e2e tests
+bun run build             # dist/cli.js and dist/lib.js, run on Node
 ```
 
-See [AGENTS.md](AGENTS.md) for conventions.
-
-### Releases
-
-Releases are automatic. Every merge to `main` updates an open release pull request with the next version and the changelog, built by [release-please](https://github.com/googleapis/release-please) from the conventional commit messages (`feat:`, `fix:`, `feat!:` for a breaking change). Merging that pull request tags the version, creates the GitHub release with its [changelog](CHANGELOG.md), and publishes the package to npm with provenance. While the version is below 1.0, a breaking change raises the minor version.
+See [AGENTS.md](AGENTS.md) for conventions. Commits follow Conventional Commits. Every merge to `main` updates a release pull request built by [release-please](https://github.com/googleapis/release-please); merging it publishes the package to npm with provenance.
 
 ## License
 
-MIT
+[MIT](LICENSE)
