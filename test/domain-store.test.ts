@@ -46,13 +46,13 @@ afterEach(async () => {
 
 function createPagePacket(): PagePacket {
   return {
-    url: "https://www.marketplace.com/products/example?ref=campaign",
-    finalUrl: "https://marketplace.com/products/example?ref=campaign",
+    url: "https://www.marketplace.example/products/example?ref=campaign",
+    finalUrl: "https://marketplace.example/products/example?ref=campaign",
     fetchedAt: "2026-05-10T20:02:33.000Z",
     title: "Example",
     response: { status: 200, xRobotsTag: null, tdmReservation: null, tdmPolicy: null, retryAfter: null },
     metadata: {
-      canonicalUrl: "https://marketplace.com/products/example",
+      canonicalUrl: "https://marketplace.example/products/example",
       description: "Fixture",
       robots: "index,follow",
       openGraph: {},
@@ -120,12 +120,12 @@ function createCompactPagePacket(packet: PagePacket): CompactPagePacket {
 function createTemplate(): ExtractionTemplate {
   return {
     id: "template_fixture",
-    domain: "marketplace.com",
+    domain: "marketplace.example",
     urlPatterns: ["/products/:slug"],
     schema: {
       title: "string",
     },
-    createdFromUrl: "https://marketplace.com/products/example",
+    createdFromUrl: "https://marketplace.example/products/example",
     createdAt: "2026-05-10T20:02:33.000Z",
     fields: {},
   };
@@ -158,42 +158,42 @@ function createTemplateExtractionResult(): TemplateExtractionResult {
 
 describe("domain store foundational helpers", () => {
   it("normalizes domains by lowercasing and removing a leading www prefix", () => {
-    expect(normalizeDomain("https://WWW.Marketplace.com/products/example")).toBe(
-      "marketplace.com",
+    expect(normalizeDomain("https://WWW.Marketplace.example/products/example")).toBe(
+      "marketplace.example",
     );
-    expect(normalizeDomain("https://shop.marketplace.com/products/example")).toBe(
-      "shop.marketplace.com",
+    expect(normalizeDomain("https://shop.marketplace.example/products/example")).toBe(
+      "shop.marketplace.example",
     );
   });
 
   it("builds stable domain paths and hashes for URL paths", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
-      targetUrl: "https://WWW.Marketplace.com/products/example?ref=campaign#details",
+      targetUrl: "https://WWW.Marketplace.example/products/example?ref=campaign#details",
       rootPath,
     });
 
     expect(store).toEqual({
       rootPath,
-      domain: "marketplace.com",
-      domainPath: path.join(rootPath, "marketplace.com"),
-      templatesPath: path.join(rootPath, "marketplace.com", "templates"),
-      listingsPath: path.join(rootPath, "marketplace.com", "listings"),
-      packetsPath: path.join(rootPath, "marketplace.com", "packets"),
+      domain: "marketplace.example",
+      domainPath: path.join(rootPath, "marketplace.example"),
+      templatesPath: path.join(rootPath, "marketplace.example", "templates"),
+      listingsPath: path.join(rootPath, "marketplace.example", "listings"),
+      packetsPath: path.join(rootPath, "marketplace.example", "packets"),
     });
 
-    expect(getUrlPathHash("https://marketplace.com/products/example?ref=one")).toBe(
-      getUrlPathHash("https://marketplace.com/products/example?ref=two#details"),
+    expect(getUrlPathHash("https://marketplace.example/products/example?ref=one")).toBe(
+      getUrlPathHash("https://marketplace.example/products/example?ref=two#details"),
     );
-    expect(getUrlPathHash("https://marketplace.com/products/example")).not.toBe(
-      getUrlPathHash("https://marketplace.com/products/other"),
+    expect(getUrlPathHash("https://marketplace.example/products/example")).not.toBe(
+      getUrlPathHash("https://marketplace.example/products/other"),
     );
   });
 
   it("creates the required domain directories", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
-      targetUrl: "https://marketplace.com/products/example",
+      targetUrl: "https://marketplace.example/products/example",
       rootPath,
     });
 
@@ -218,7 +218,7 @@ describe("domain store foundational helpers", () => {
   it("keeps templates for different field sets on the same URL pattern side by side", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
-      targetUrl: "https://marketplace.com/products/example",
+      targetUrl: "https://marketplace.example/products/example",
       rootPath,
     });
     const first = await saveTemplate(store, createTemplate());
@@ -232,7 +232,7 @@ describe("domain store foundational helpers", () => {
   it("saves templates by URL pattern hash", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
-      targetUrl: "https://marketplace.com/products/example",
+      targetUrl: "https://marketplace.example/products/example",
       rootPath,
     });
     const template = createTemplate();
@@ -249,7 +249,7 @@ describe("domain store foundational helpers", () => {
   it("lists the domain's templates whatever their URL patterns, filtered by exact fields when given", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
-      targetUrl: "https://marketplace.com/products/example",
+      targetUrl: "https://marketplace.example/products/example",
       rootPath,
     });
     const template = createTemplate();
@@ -270,13 +270,13 @@ describe("domain store foundational helpers", () => {
 
   it("records the per-URL pattern of an uncovered page by rewriting the same file, and merges the list", async () => {
     const rootPath = await createTempDir();
-    const store = createDomainStore({ targetUrl: "https://marketplace.com/products/example", rootPath });
+    const store = createDomainStore({ targetUrl: "https://marketplace.example/products/example", rootPath });
     const { path: templatePath } = await saveTemplate(store, createTemplate());
 
     await Promise.all([
-      addPatternToTemplate(templatePath, "https://marketplace.com/p/rolex-daytona"),
-      addPatternToTemplate(templatePath, "https://marketplace.com/2026/11/04/rolex-daytona"),
-      addPatternToTemplate(templatePath, "https://marketplace.com/p/omega-speedmaster"),
+      addPatternToTemplate(templatePath, "https://marketplace.example/p/rolex-daytona"),
+      addPatternToTemplate(templatePath, "https://marketplace.example/2026/11/04/rolex-daytona"),
+      addPatternToTemplate(templatePath, "https://marketplace.example/p/omega-speedmaster"),
     ]);
 
     const saved = await readJsonFile<ExtractionTemplate>(templatePath);
@@ -286,11 +286,11 @@ describe("domain store foundational helpers", () => {
 
   it("does not rewrite a template whose patterns cover the URL", async () => {
     const rootPath = await createTempDir();
-    const store = createDomainStore({ targetUrl: "https://marketplace.com/products/example", rootPath });
+    const store = createDomainStore({ targetUrl: "https://marketplace.example/products/example", rootPath });
     const { path: templatePath } = await saveTemplate(store, { ...createTemplate(), urlPatterns: ["/:brand/:slug--id:id.htm"] });
     const before = (await stat(templatePath)).mtimeMs;
 
-    await addPatternToTemplate(templatePath, "https://marketplace.com/omega/omega-speedmaster--id50011122.htm");
+    await addPatternToTemplate(templatePath, "https://marketplace.example/omega/omega-speedmaster--id50011122.htm");
 
     expect((await stat(templatePath)).mtimeMs).toBe(before);
     expect((await readJsonFile<ExtractionTemplate>(templatePath)).urlPatterns).toEqual(["/:brand/:slug--id:id.htm"]);
@@ -330,17 +330,17 @@ describe("domain store foundational helpers", () => {
 
   it("loads the urlPatterns of a listing template merged", async () => {
     const rootPath = await createTempDir();
-    const store = createDomainStore({ targetUrl: "https://marketplace.com/products/example", rootPath });
+    const store = createDomainStore({ targetUrl: "https://marketplace.example/products/example", rootPath });
     await saveListingTemplate(store, {
       id: "listing_0123456789abcdef",
       kind: "listing",
-      domain: "marketplace.com",
+      domain: "marketplace.example",
       urlPatterns: ["/category/men", "/category/women"],
       itemLinks: ["ul.grid a"],
       nextPage: [],
       pageLinks: [],
       itemUrlPattern: "/products/:slug",
-      createdFromUrl: "https://marketplace.com/category/men",
+      createdFromUrl: "https://marketplace.example/category/men",
       createdAt: "2026-11-05T00:00:00.000Z",
     });
 
@@ -350,7 +350,7 @@ describe("domain store foundational helpers", () => {
 
   it("reads a template written with a single urlPattern as a one-entry urlPatterns list", async () => {
     const rootPath = await createTempDir();
-    const store = createDomainStore({ targetUrl: "https://marketplace.com/products/example", rootPath });
+    const store = createDomainStore({ targetUrl: "https://marketplace.example/products/example", rootPath });
     const { urlPatterns: _patterns, ...current } = createTemplate();
     await writeJsonFile(path.join(store.templatesPath, "legacy.json"), { ...current, urlPattern: "/products/:slug" });
 
@@ -362,17 +362,17 @@ describe("domain store foundational helpers", () => {
 
   it("lists saved listing templates and skips invalid ones and other domains with a warning", async () => {
     const rootPath = await createTempDir();
-    const store = createDomainStore({ targetUrl: "https://marketplace.com/category/clocks", rootPath });
+    const store = createDomainStore({ targetUrl: "https://marketplace.example/category/clocks", rootPath });
     const listing: ListingTemplate = {
       id: "listing_0123456789abcdef",
       kind: "listing",
-      domain: "marketplace.com",
+      domain: "marketplace.example",
       urlPatterns: ["/category/:slug"],
       itemLinks: ["ul.grid a"],
       nextPage: [],
       pageLinks: [],
       itemUrlPattern: "/products/:slug",
-      createdFromUrl: "https://marketplace.com/category/clocks",
+      createdFromUrl: "https://marketplace.example/category/clocks",
       createdAt: "2026-11-05T00:00:00.000Z",
     };
     const saved = await saveListingTemplate(store, listing);
@@ -388,7 +388,7 @@ describe("domain store foundational helpers", () => {
 
   it("removes an older file with the same template id when it saves a template", async () => {
     const rootPath = await createTempDir();
-    const store = createDomainStore({ targetUrl: "https://marketplace.com/products/example", rootPath });
+    const store = createDomainStore({ targetUrl: "https://marketplace.example/products/example", rootPath });
     const legacyPath = path.join(store.templatesPath, "0123456789abcdef.json");
     const otherPath = path.join(store.templatesPath, "other.json");
     await writeJsonFile(legacyPath, { ...createTemplate(), schema: { title: "text" } });
@@ -403,7 +403,7 @@ describe("domain store foundational helpers", () => {
 
   it("names template files by template id, so field sets on one pattern sit side by side", async () => {
     const rootPath = await createTempDir();
-    const store = createDomainStore({ targetUrl: "https://marketplace.com/products/example", rootPath });
+    const store = createDomainStore({ targetUrl: "https://marketplace.example/products/example", rootPath });
 
     const first = await saveTemplate(store, createTemplate());
     const second = await saveTemplate(store, { ...createTemplate(), id: "template_00000000000000ab", schema: { sku: "string" } });
@@ -416,7 +416,7 @@ describe("domain store foundational helpers", () => {
   it("discovers a valid matching template candidate by domain and URL pattern", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
-      targetUrl: "https://marketplace.com/products/example",
+      targetUrl: "https://marketplace.example/products/example",
       rootPath,
     });
     const template = createTemplate();
@@ -438,12 +438,12 @@ describe("domain store foundational helpers", () => {
   it("discovers a matching template whose embedded domain has a leading www prefix", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
-      targetUrl: "https://marketplace.com/products/example",
+      targetUrl: "https://marketplace.example/products/example",
       rootPath,
     });
     const template = {
       ...createTemplate(),
-      domain: "www.marketplace.com",
+      domain: "www.marketplace.example",
     };
     await saveTemplate(store, template);
 
@@ -457,7 +457,7 @@ describe("domain store foundational helpers", () => {
   it("reports invalid matching template JSON as a recoverable reuse warning", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
-      targetUrl: "https://marketplace.com/products/example",
+      targetUrl: "https://marketplace.example/products/example",
       rootPath,
     });
     const artifactPath = path.join(store.templatesPath, "broken.json");
@@ -481,7 +481,7 @@ describe("domain store foundational helpers", () => {
   it("discovers duplicate matching template candidates deterministically", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
-      targetUrl: "https://marketplace.com/products/example",
+      targetUrl: "https://marketplace.example/products/example",
       rootPath,
     });
     const template = createTemplate();
@@ -508,7 +508,7 @@ describe("domain store foundational helpers", () => {
   it("lists 501 templates without reading packet contents", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
-      targetUrl: "https://marketplace.com/products/example",
+      targetUrl: "https://marketplace.example/products/example",
       rootPath,
     });
     await ensureDomainStoreDirectories(store);
@@ -534,7 +534,7 @@ describe("domain store foundational helpers", () => {
   it("saves page artifacts by URL path hash with optional LLM extraction", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
-      targetUrl: "https://marketplace.com/products/example",
+      targetUrl: "https://marketplace.example/products/example",
       rootPath,
     });
     const pagePacket = createPagePacket();
@@ -563,7 +563,7 @@ describe("domain store foundational helpers", () => {
   it("saves non-LLM page artifacts without creating packet.llm.json", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
-      targetUrl: "https://marketplace.com/products/example",
+      targetUrl: "https://marketplace.example/products/example",
       rootPath,
     });
     const pagePacket = createPagePacket();
@@ -587,7 +587,7 @@ describe("domain store foundational helpers", () => {
   it("lists only result artifacts for the selected domain", async () => {
     const rootPath = await createTempDir();
     const marketplaceStore = createDomainStore({
-      targetUrl: "https://marketplace.com/products/example",
+      targetUrl: "https://marketplace.example/products/example",
       rootPath,
     });
     const otherStore = createDomainStore({
@@ -597,8 +597,8 @@ describe("domain store foundational helpers", () => {
     const firstPacket = createPagePacket();
     const secondPacket = {
       ...createPagePacket(),
-      url: "https://marketplace.com/products/second",
-      finalUrl: "https://marketplace.com/products/second",
+      url: "https://marketplace.example/products/second",
+      finalUrl: "https://marketplace.example/products/second",
     };
     const otherPacket = {
       ...createPagePacket(),
@@ -644,7 +644,7 @@ describe("domain store foundational helpers", () => {
   it("discovers 1,000 result files without reading packet contents", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
-      targetUrl: "https://marketplace.com/products/example",
+      targetUrl: "https://marketplace.example/products/example",
       rootPath,
     });
     await ensureDomainStoreDirectories(store);
@@ -653,8 +653,8 @@ describe("domain store foundational helpers", () => {
       const packetDir = path.join(store.packetsPath, `packet-${index}`);
       await writeJsonFile(path.join(packetDir, "result.json"), {
         payload: { index },
-        sourceUrl: `https://marketplace.com/products/${index}`,
-        finalUrl: `https://marketplace.com/products/${index}`,
+        sourceUrl: `https://marketplace.example/products/${index}`,
+        finalUrl: `https://marketplace.example/products/${index}`,
       });
       await writeFile(path.join(packetDir, "packet.json"), "{not-json");
     }
@@ -669,7 +669,7 @@ describe("domain store foundational helpers", () => {
   it("reports invalid result JSON without failing unrelated packet folders", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({
-      targetUrl: "https://marketplace.com/products/example",
+      targetUrl: "https://marketplace.example/products/example",
       rootPath,
     });
     const validFolder = await savePageArtifacts(store, {
