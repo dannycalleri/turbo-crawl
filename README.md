@@ -224,7 +224,7 @@ Version 0.4 changes how URL patterns are made and used:
 
 - **The agent writes URL patterns.** `urlPattern` in results can now hold placeholders inside a segment and query keys, such as `/:brand/:slug--id:id.htm` or `/search/index.htm?query=:q`. `templateFit.matchedPattern` is `true` when one of the template's patterns matches the URL.
 - **`stale: true` on more sites.** Sites whose URLs differ for every page, such as marketplaces, now get stale results when their layout changes, instead of a new template.
-- **One more agent call when a detail page is authored.** The CLI now always asks the agent whether a new page is a listing before it authors a template. `crawler.extract()` and the items of a followed listing do not make this call.
+- **One more agent call when a detail page is authored.** The CLI now always asks the agent whether a new page is a listing before it authors a template. `crawler.extract()`, the items of a followed listing, and a URL that matches a saved listing's item pattern do not make this call.
 - **Old template files load with merged patterns.** A template whose `urlPatterns` grew by one entry per page loads as a short list, and is saved that way on its next update. Listing templates store `itemUrlPatterns` and still write `itemUrlPattern`, so 0.3 can read them.
 - **Duplicate templates.** If a page now fails with `AMBIGUOUS_TEMPLATE` because an old and a new template both fit, delete the older file in `data/<domain>/templates/`.
 
