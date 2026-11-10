@@ -310,6 +310,44 @@ describe("domain store foundational helpers", () => {
     expect((await readJsonFile<ExtractionTemplate>(templatePath)).urlPatterns).toEqual(["/:slug/:slug"]);
   });
 
+  it("loads a 0.3.0 template with per-listing paths as one merged pattern, and saves that list on the next write", async () => {
+    const rootPath = await createTempDir();
+    const store = createDomainStore({ targetUrl: "https://www.watches.example/rolex/rolex-daytona--id1.htm", rootPath });
+    const brands = ["rolex", "omega", "tudor"];
+    const paths = Array.from({ length: 300 }, (_, index) => {
+      const brand = brands[index % brands.length]!;
+      return `/${brand}/${brand}-model-${index}--id${50_000_000 + index}`;
+    });
+    const templatePath = path.join(store.templatesPath, "old.json");
+    await writeJsonFile(templatePath, { ...createTemplate(), domain: "watches.example", urlPatterns: paths });
+
+    const [loaded] = (await listTemplatesForDomain(store)).candidates;
+    expect(loaded?.template.urlPatterns).toEqual(["/:slug/:slug"]);
+
+    await addPatternToTemplate(templatePath, "https://www.watches.example/search/watches/index.htm");
+    expect((await readJsonFile<ExtractionTemplate>(templatePath)).urlPatterns).toEqual(["/:slug/:slug", "/search/watches/index.htm"]);
+  });
+
+  it("loads the urlPatterns of a listing template merged", async () => {
+    const rootPath = await createTempDir();
+    const store = createDomainStore({ targetUrl: "https://marketplace.com/products/example", rootPath });
+    await saveListingTemplate(store, {
+      id: "listing_0123456789abcdef",
+      kind: "listing",
+      domain: "marketplace.com",
+      urlPatterns: ["/category/men", "/category/women"],
+      itemLinks: ["ul.grid a"],
+      nextPage: [],
+      pageLinks: [],
+      itemUrlPattern: "/products/:slug",
+      createdFromUrl: "https://marketplace.com/category/men",
+      createdAt: "2026-11-05T00:00:00.000Z",
+    });
+
+    const [loaded] = (await listListingTemplates(store)).candidates;
+    expect(loaded?.template.urlPatterns).toEqual(["/category/:slug"]);
+  });
+
   it("reads a template written with a single urlPattern as a one-entry urlPatterns list", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({ targetUrl: "https://marketplace.com/products/example", rootPath });

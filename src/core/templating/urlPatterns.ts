@@ -1,3 +1,5 @@
+import { inferUrlPattern } from "./inferUrlPattern";
+
 type CompiledPattern = {
     segments: RegExp[];
     query: Array<{ key: string; value: RegExp }>;
@@ -88,6 +90,17 @@ export function mergePatterns(patterns: string[]): string[] {
         }
     }
     return merged;
+}
+
+export function normalizePatterns(patterns: string[]): string[] {
+    return capPatterns(mergePatterns(patterns.map(normalizePattern)));
+}
+
+function normalizePattern(pattern: string): string {
+    const [path, query] = pattern.split("?");
+    if (!path!.startsWith("/")) return pattern;
+    const inferred = inferUrlPattern(`https://pattern.invalid${path}`);
+    return query === undefined ? inferred : `${inferred}?${query}`;
 }
 
 export function capPatterns(patterns: string[]): string[] {

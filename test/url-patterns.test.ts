@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { capPatterns, MAX_URL_PATTERNS, mergePatterns, templateCoversUrl, urlMatchesPattern } from "../src/core/templating/urlPatterns.ts";
+import { capPatterns, MAX_URL_PATTERNS, mergePatterns, normalizePatterns, templateCoversUrl, urlMatchesPattern } from "../src/core/templating/urlPatterns.ts";
 
 describe("urlMatchesPattern", () => {
   it("matches typed placeholders inside one segment", () => {
@@ -91,5 +91,20 @@ describe("capPatterns", () => {
     expect(capped[0]).toBe("/p0/:slug/x0");
     expect(capped).not.toContain("/p1/:slug/x1");
     expect(capped.at(-1)).toBe(`/p${MAX_URL_PATTERNS}/:slug/x${MAX_URL_PATTERNS}`);
+  });
+});
+
+describe("normalizePatterns", () => {
+  it("runs the per-URL heuristic on each stored path, then merges", () => {
+    expect(normalizePatterns([
+      "/rolex/rolex-submariner-no-date--id49535507",
+      "/rolex/rolex-daytona--id51234567",
+      "/omega/omega-speedmaster--id50011122",
+    ])).toEqual(["/:slug/:slug"]);
+  });
+
+  it("keeps typed patterns and query parts as they are", () => {
+    expect(normalizePatterns(["/:brand/:slug--id:id.htm", "/index.php?product_id=:id&route=product/product"]))
+      .toEqual(["/:brand/:slug--id:id.htm", "/index.php?product_id=:id&route=product/product"]);
   });
 });
