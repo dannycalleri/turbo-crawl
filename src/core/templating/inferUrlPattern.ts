@@ -23,7 +23,7 @@ function inferPathPartPattern(part: string): string {
     return part.replace(/:/g, "%3A");
 }
 
-function decodeSegment(part: string): string {
+export function decodeSegment(part: string): string {
     try {
         return decodeURIComponent(part);
     } catch {

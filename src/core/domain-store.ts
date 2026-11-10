@@ -5,7 +5,7 @@ import type { CompactPagePacket } from "./compactPagePacket.ts";
 import { isFieldType, type FieldType, type LLMExtractionResult, type UserSchema } from "./llm-extractor/types.ts";
 import type { TemplateExtractionResult } from "./template-extractor/types.ts";
 import { inferUrlPattern } from "./templating/inferUrlPattern.ts";
-import { normalizePatterns, urlMatchesPattern } from "./templating/urlPatterns.ts";
+import { matchingPattern, normalizePatterns } from "./templating/urlPatterns.ts";
 import type { ExtractionTemplate, ListingTemplate } from "./templating/types.ts";
 import type { PagePacket } from "./types.ts";
 
@@ -190,7 +190,7 @@ export async function listListingTemplates(
   store: DomainStore,
 ): Promise<ReuseDiscoveryResult<ListingTemplateArtifact>> {
   return readTemplateArtifacts(store.listingsPath, "listing template", (value, artifactPath, warnings) => {
-    const itemUrlPatterns = isRecord(value) ? readItemUrlPatterns(value) : null;
+    const itemUrlPatterns = isRecord(value) ? readPatternList(value, "itemUrlPatterns", "itemUrlPattern") : null;
     if (itemUrlPatterns && isListingTemplate(value) && normalizeStoredDomain(value.domain) === store.domain) {
       const { itemUrlPattern: _legacy, ...template } = value as ListingTemplate & { itemUrlPattern?: string };
       return { ...template, urlPatterns: normalizePatterns(value.urlPatterns), itemUrlPatterns };
@@ -198,14 +198,6 @@ export async function listListingTemplates(
     pushTemplateValidationWarning(warnings, artifactPath, `Listing template is invalid or does not match domain ${store.domain}.`);
     return null;
   });
-}
-
-function readItemUrlPatterns(value: Record<string, unknown>): string[] | null {
-  const { itemUrlPatterns, itemUrlPattern } = value;
-  if (Array.isArray(itemUrlPatterns) && itemUrlPatterns.length > 0 && itemUrlPatterns.every(item => typeof item === "string")) {
-    return itemUrlPatterns;
-  }
-  return typeof itemUrlPattern === "string" ? [itemUrlPattern] : null;
 }
 
 function isListingTemplate(value: unknown): value is Omit<ListingTemplate, "itemUrlPatterns"> {
@@ -270,7 +262,7 @@ export function addPatternToTemplate(templatePath: string, url: string): Promise
     const template = await readJsonFile<Record<string, unknown>>(templatePath);
     const { urlPattern: _legacy, ...rest } = template;
     const patterns = readUrlPatterns(template) ?? [];
-    if (patterns.some(pattern => urlMatchesPattern(url, pattern))) return;
+    if (matchingPattern(url, patterns) !== undefined) return;
     await writeJsonFile(templatePath, { ...rest, urlPatterns: normalizePatterns([...patterns, inferUrlPattern(url)]) });
   });
   patternWrites.set(templatePath, next);
@@ -499,11 +491,15 @@ function validateTemplateArtifact(
 
 // Templates written before 0.2.0 store a single `urlPattern`.
 function readUrlPatterns(value: Record<string, unknown>): string[] | null {
-  if (Array.isArray(value.urlPatterns)) {
-    const patterns = value.urlPatterns.filter((pattern): pattern is string => typeof pattern === "string");
-    return patterns.length > 0 && patterns.length === value.urlPatterns.length ? normalizePatterns(patterns) : null;
-  }
-  return typeof value.urlPattern === "string" ? normalizePatterns([value.urlPattern]) : null;
+  const patterns = readPatternList(value, "urlPatterns", "urlPattern");
+  return patterns && normalizePatterns(patterns);
+}
+
+function readPatternList(value: Record<string, unknown>, listKey: string, legacyKey: string): string[] | null {
+  const list = value[listKey];
+  if (Array.isArray(list)) return list.length > 0 && list.every(item => typeof item === "string") ? list : null;
+  const legacy = value[legacyKey];
+  return typeof legacy === "string" ? [legacy] : null;
 }
 
 function pushTemplateValidationWarning(

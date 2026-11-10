@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { LinkGroup } from "../extraction/links";
 import type { ChatMessage } from "../llm-extractor/providers/LLMProvider";
-import { formatPageContext, type PageContextForAgent } from "./authorPrompt";
+import { formatPageContext, PATTERN_SYNTAX, type PageContextForAgent } from "./authorPrompt";
 import { LINK_ROLES, type LinkRole, type LinkSelectorValidation } from "./validateListingSelectors";
 
 export const MAX_LINK_SELECTORS = 4;
@@ -36,7 +36,7 @@ Rules:
 - Prefer semantic class names, ids, rel="next" and aria labels. Never use :nth-child/:nth-of-type positions, generated class names, or text that only appears on this page.
 URL patterns (only for a listing; give "" for a detail page):
 - itemUrlPattern is the URL pattern of every item page that the list links to. pageUrlPattern is the URL pattern of this page and of its other pages (next page, numbered pages, and other lists with the same layout).
-- Start with "/". Keep as literal text the parts that are the same on every page of the type. Replace the parts that change with a placeholder: ":" and a lowercase name, e.g. "/:brand/:slug--id:id.htm" or "/search/index.htm?query=:q". ":id" stands for digits only; any other placeholder stands for any text without "/". Add query keys only when they identify the page; a URL can have more keys than its pattern.
+${PATTERN_SYNTAX}
 - Every item link must match itemUrlPattern, and this page's URL must not. This page's URL and its pagination links must match pageUrlPattern, and no item link may.`;
 
 export function buildClassifyResponseSchema(): unknown {

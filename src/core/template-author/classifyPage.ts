@@ -106,7 +106,7 @@ export async function classifyPage(input: ClassifyPageInput): Promise<PageClassi
             if (answer[role].length === 0 && role !== "itemLinks") continue;
             const results = role === "itemLinks" && itemPatternFailure !== null
                 ? answer.itemLinks.map(selector => ({ selector, passed: false, links: [], reason: "not checked, because the itemUrlPattern failed a check" }))
-                : await validateLinkSelectors(input.page, role, answer[role], [candidateItemPattern]);
+                : await validateLinkSelectors(input.page, role, answer[role], role === "itemLinks" ? [candidateItemPattern] : []);
             validations[role] = results;
             const passed = results.filter(result => result.passed);
             if (passed.length > 0) passing[role] = passed;
@@ -121,19 +121,23 @@ export async function classifyPage(input: ClassifyPageInput): Promise<PageClassi
             itemPattern = null;
         }
 
-        if (passing.itemLinks) itemPattern = candidateItemPattern;
-        else patternFailures.itemUrlPattern = {
-            pattern: candidateItemPattern,
-            reason: paginationFailure ?? itemPatternFailure ?? `no itemLinks selector gave ${MIN_ITEM_LINKS} or more links that match ${candidateItemPattern}`,
-        };
-
-        if (passing.itemLinks) {
+        if (!passing.itemLinks) {
+            patternFailures.itemUrlPattern = {
+                pattern: candidateItemPattern,
+                reason: paginationFailure ?? itemPatternFailure ?? `no itemLinks selector gave ${MIN_ITEM_LINKS} or more links that match ${candidateItemPattern}`,
+            };
+        } else {
+            itemPattern = candidateItemPattern;
             const itemUrls = passing.itemLinks[0]!.links.map(link => link.url);
             const check = (pattern: string) => checkPageUrlPattern(pattern, finalUrl, paginationUrls, itemUrls);
             if (pagePattern === null || check(pagePattern) !== null) {
                 const reason = check(answer.pageUrlPattern);
-                pagePattern = reason === null ? answer.pageUrlPattern : null;
-                if (reason !== null) patternFailures.pageUrlPattern = { pattern: answer.pageUrlPattern, reason };
+                if (reason === null) {
+                    pagePattern = answer.pageUrlPattern;
+                } else {
+                    pagePattern = null;
+                    patternFailures.pageUrlPattern = { pattern: answer.pageUrlPattern, reason };
+                }
             }
         }
         calls.push({ round, messages, response: response.raw, validations });

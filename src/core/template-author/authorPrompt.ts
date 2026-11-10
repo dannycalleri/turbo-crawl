@@ -55,9 +55,11 @@ Rules:
 - The selector must point at the element holding just the value (e.g. the price element, not its whole card).
 - expectedSample is the raw text you expect the first selector to read on this page, or null if the field is absent.`;
 
+export const PATTERN_SYNTAX = `- Start with "/". Keep as literal text the parts that are the same on every page of the type. Replace the parts that change from page to page with a placeholder: ":" and a lowercase name, e.g. "/:brand/:slug--id:id.htm", "/search/index.htm?query=:q" or "/index.php?product_id=:id&route=product/product". ":id" stands for digits only; any other placeholder stands for any text without "/". Add query keys only when they identify the page; a URL can have more keys than its pattern.`;
+
 const PATTERN_RULES = `URL pattern:
 - urlPattern is the URL pattern of every page of the same type as this page on this site.
-- Start with "/". Keep as literal text the parts that are the same on every page of this type. Replace the parts that change from page to page with a placeholder: ":" and a lowercase name, e.g. "/:brand/:slug--id:id.htm" or "/index.php?product_id=:id&route=product/product". ":id" stands for digits only; any other placeholder stands for any text without "/". Add query keys only when they identify the page.
+${PATTERN_SYNTAX}
 - sameTypeLinks: up to ${MAX_EXAMPLE_LINKS} links from the list of same-site links that are pages of the same type. otherTypeLinks: up to ${MAX_EXAMPLE_LINKS} links from that list that are pages of other types (listings, categories, help pages). Copy each link exactly.
 - The pattern must match this page's URL and every sameTypeLinks link, and must not match any otherTypeLinks link.`;
 
@@ -198,25 +200,28 @@ export function buildRepairMessages(input: {
 
     const repairSchema = Object.fromEntries(failedFields.map(name => [name, input.schema[name]!])) as UserSchema;
 
+    const parts: string[] = [];
+    if (failedFields.length > 0) {
+        parts.push(
+            `Your previous selectors for some fields failed when run on the live page. Write new selectors for these fields only: ${formatSchema(repairSchema)}`,
+            `Failure report:\n${report}`,
+            SELECTOR_RULES,
+        );
+    } else {
+        parts.push("Your previous selectors all worked. Leave fields empty.");
+    }
+    if (input.patternFailure !== null) {
+        parts.push(
+            `Your previous urlPattern ${JSON.stringify(input.previous.pattern?.urlPattern ?? null)} failed a check: ${input.patternFailure}. Write a new urlPattern, sameTypeLinks and otherTypeLinks.`,
+            PATTERN_RULES,
+        );
+    }
+    parts.push(formatPageContext(input.page));
+    if (input.patternFailure !== null) parts.push(formatLinks(input.links));
+
     return [
         { role: "system", content: SYSTEM_PROMPT },
-        {
-            role: "user",
-            content: [
-                ...(failedFields.length > 0
-                    ? [
-                        `Your previous selectors for some fields failed when run on the live page. Write new selectors for these fields only: ${formatSchema(repairSchema)}`,
-                        `Failure report:\n${report}`,
-                        SELECTOR_RULES,
-                    ]
-                    : ["Your previous selectors all worked. Leave fields empty."]),
-                ...(input.patternFailure !== null
-                    ? [`Your previous urlPattern ${JSON.stringify(input.previous.pattern?.urlPattern ?? null)} failed a check: ${input.patternFailure}. Write a new urlPattern, sameTypeLinks and otherTypeLinks.`, PATTERN_RULES]
-                    : []),
-                formatPageContext(input.page),
-                ...(input.patternFailure !== null ? [formatLinks(input.links)] : []),
-            ].join("\n\n"),
-        },
+        { role: "user", content: parts.join("\n\n") },
     ];
 }
 

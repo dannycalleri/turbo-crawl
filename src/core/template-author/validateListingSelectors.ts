@@ -1,6 +1,6 @@
 import type { Page } from "playwright";
 import { readDomLinks, sameHostLinks, type LinkItem } from "../extraction/links";
-import { urlMatchesPattern } from "../templating/urlPatterns";
+import { matchingPattern } from "../templating/urlPatterns";
 import type { ListingTemplate } from "../templating/types";
 
 export const MIN_ITEM_LINKS = 2;
@@ -8,7 +8,7 @@ export const MIN_ITEM_LINKS = 2;
 export const LINK_ROLES = ["itemLinks", "nextPage", "pageLinks"] as const;
 export type LinkRole = typeof LINK_ROLES[number];
 
-export type ItemLinksFit =
+type ItemLinksFit =
     | { fits: true; itemUrls: string[] }
     | { fits: false; reason: string };
 
@@ -26,7 +26,7 @@ export type ListingLinks = {
 
 export function itemLinksFit(urls: string[], pageUrl: string, itemUrlPatterns: string[]): ItemLinksFit {
     const sameHost = sameHostLinks(urls, pageUrl);
-    const itemUrls = sameHost.filter(url => itemUrlPatterns.some(pattern => urlMatchesPattern(url, pattern)));
+    const itemUrls = sameHost.filter(url => matchingPattern(url, itemUrlPatterns) !== undefined);
     if (itemUrls.length < MIN_ITEM_LINKS) {
         return {
             fits: false,
@@ -40,7 +40,7 @@ export async function validateLinkSelectors(
     page: Page,
     role: LinkRole,
     selectors: string[],
-    itemUrlPatterns: string[],
+    itemUrlPatterns: string[] = [],
 ): Promise<LinkSelectorValidation[]> {
     const results: LinkSelectorValidation[] = [];
     for (const selector of selectors) results.push(await validateLinkSelector(page, role, selector, itemUrlPatterns));
@@ -51,8 +51,8 @@ export async function readListingLinks(page: Page, template: ListingTemplate): P
     const items = await firstPassing(page, "itemLinks", template.itemLinks, template.itemUrlPatterns);
     if (!items) return null;
 
-    const next = await firstPassing(page, "nextPage", template.nextPage, template.itemUrlPatterns);
-    const pages = await firstPassing(page, "pageLinks", template.pageLinks, template.itemUrlPatterns);
+    const next = await firstPassing(page, "nextPage", template.nextPage);
+    const pages = await firstPassing(page, "pageLinks", template.pageLinks);
 
     return {
         items: items.links,
@@ -60,7 +60,7 @@ export async function readListingLinks(page: Page, template: ListingTemplate): P
     };
 }
 
-async function firstPassing(page: Page, role: LinkRole, selectors: string[], itemUrlPatterns: string[]): Promise<LinkSelectorValidation | null> {
+async function firstPassing(page: Page, role: LinkRole, selectors: string[], itemUrlPatterns: string[] = []): Promise<LinkSelectorValidation | null> {
     for (const selector of selectors) {
         const result = await validateLinkSelector(page, role, selector, itemUrlPatterns);
         if (result.passed && result.links.length > 0) return result;

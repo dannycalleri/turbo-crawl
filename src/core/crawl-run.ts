@@ -4,7 +4,7 @@ import type { LLMProvider } from "./llm-extractor/providers/LLMProvider.ts";
 import type { UserSchema } from "./llm-extractor/types.ts";
 import type { ExtractionTemplate } from "./templating/types.ts";
 import { inferUrlPattern } from "./templating/inferUrlPattern.ts";
-import { templateCoversUrl, urlMatchesPattern } from "./templating/urlPatterns.ts";
+import { matchingPattern, templateCoversUrl } from "./templating/urlPatterns.ts";
 import { buildPolicy, CrawlFailure, failureForStatus, type PolicyInfo } from "./policy/policy.ts";
 import { decideTemplate, missingFields, type TemplateTrial } from "./template-matcher/matchTemplate.ts";
 import type { RobotsChecker, RobotsStatus } from "./policy/robots.ts";
@@ -212,13 +212,10 @@ export async function startCrawl(
       ...domainTemplates.candidates.flatMap(candidate => candidate.template.urlPatterns),
       ...domainListings.candidates.flatMap(candidate => [...candidate.template.urlPatterns, ...candidate.template.itemUrlPatterns]),
     ];
-    const savedListings = { candidates: input.expect === "detail" ? [] : domainListings.candidates };
-    const saved = {
-      candidates: input.expect === "listing"
-        ? []
-        : domainTemplates.candidates.filter(candidate => !fieldsGiven || schemasMatch(candidate.template.schema, userSchema)),
-    };
-    const urlPattern = storedPatterns.find(pattern => urlMatchesPattern(finalUrl, pattern)) ?? inferUrlPattern(finalUrl);
+    const fieldCandidates = input.expect === "listing"
+      ? []
+      : domainTemplates.candidates.filter(candidate => !fieldsGiven || schemasMatch(candidate.template.schema, userSchema));
+    const urlPattern = matchingPattern(finalUrl, storedPatterns) ?? inferUrlPattern(finalUrl);
     const facts: PageFacts = {
       target: input.target,
       finalUrl,
@@ -228,11 +225,11 @@ export async function startCrawl(
       policy,
     };
     const storeWarnings = [...domainListings.warnings, ...domainTemplates.warnings].map(warning => warning.message);
-    const listingCandidates = input.listingTemplatePath
-      ? savedListings.candidates.filter(candidate => candidate.path === input.listingTemplatePath)
-      : savedListings.candidates;
-    const isItemPage = !input.listingTemplatePath && input.expect !== "listing" && domainListings.candidates.some(candidate =>
-      candidate.template.itemUrlPatterns.some(pattern => urlMatchesPattern(finalUrl, pattern)));
+    const listingCandidates = input.expect === "detail"
+      ? []
+      : domainListings.candidates.filter(candidate => !input.listingTemplatePath || candidate.path === input.listingTemplatePath);
+    const isItemPage = !input.listingTemplatePath && input.expect !== "listing" &&
+      domainListings.candidates.some(candidate => matchingPattern(finalUrl, candidate.template.itemUrlPatterns) !== undefined);
     const listingFit = isItemPage ? null : await findListingFit(page, listingCandidates, finalUrl, deps);
     const listingOutcome = async ({ candidate, links, matchedPattern }: ListingFit): Promise<ListingOutcome> => {
       if (!matchedPattern) await deps.addPatternToTemplate(candidate.path, finalUrl);
@@ -253,12 +250,12 @@ export async function startCrawl(
 
     // A related-products block can fit a listing template, so on a page that
     // a field template knows, a listing fit on a page it does not know waits for the field templates.
-    const fieldKnowsPattern = saved.candidates.some(candidate => templateCoversUrl(candidate.template, finalUrl));
+    const fieldKnowsPattern = fieldCandidates.some(candidate => templateCoversUrl(candidate.template, finalUrl));
     if (listingFit && (listingFit.matchedPattern || !fieldKnowsPattern)) {
       return listingOutcome(listingFit);
     }
 
-    const trials: TemplateTrial[] = await Promise.all(saved.candidates.map(async candidate => ({
+    const trials: TemplateTrial[] = await Promise.all(fieldCandidates.map(async candidate => ({
       candidate,
       result: await deps.extractWithTemplate({ page, pagePacket, template: candidate.template }),
     })));

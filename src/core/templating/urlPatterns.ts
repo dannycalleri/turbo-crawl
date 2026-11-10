@@ -1,39 +1,53 @@
-import { inferUrlPattern } from "./inferUrlPattern";
+import { decodeSegment, inferUrlPattern } from "./inferUrlPattern";
 
 type CompiledPattern = {
     segments: RegExp[];
     query: Array<{ key: string; value: RegExp }>;
 };
 
-const PLACEHOLDER = /:([a-z][a-z0-9]*(?:_[a-z0-9]+)*)/g;
+const PLACEHOLDER_NAME = "[a-z][a-z0-9]*(?:_[a-z0-9]+)*";
+const PLACEHOLDER = new RegExp(`:(${PLACEHOLDER_NAME})`, "g");
+const HAS_PLACEHOLDER = new RegExp(`:${PLACEHOLDER_NAME}`);
+const WHOLE_PLACEHOLDER = new RegExp(`^:${PLACEHOLDER_NAME}$`);
+
+const compiled = new Map<string, CompiledPattern | null>();
 
 export function isValidPattern(pattern: string): boolean {
     return compilePattern(pattern) !== null;
 }
 
-export function urlMatchesPattern(rawUrl: string, pattern: string): boolean {
-    const compiled = compilePattern(pattern);
-    if (!compiled) return false;
+export function urlMatchesPattern(url: string, pattern: string): boolean {
+    return matchingPattern(url, [pattern]) !== undefined;
+}
 
+export function templateCoversUrl(template: { urlPatterns: string[] }, url: string): boolean {
+    return matchingPattern(url, template.urlPatterns) !== undefined;
+}
+
+export function matchingPattern(rawUrl: string, patterns: string[]): string | undefined {
     let url: URL;
     try {
         url = new URL(rawUrl);
     } catch {
-        return false;
+        return undefined;
     }
+    const segments = url.pathname.split("/").filter(Boolean).map(decodeSegment);
 
-    const segments = url.pathname.split("/").filter(Boolean).map(decode);
-    if (segments.length !== compiled.segments.length) return false;
-    if (!compiled.segments.every((segment, index) => segment.test(segments[index]!))) return false;
-
-    return compiled.query.every(({ key, value }) => url.searchParams.getAll(key).some(candidate => value.test(candidate)));
-}
-
-export function templateCoversUrl(template: { urlPatterns: string[] }, url: string): boolean {
-    return template.urlPatterns.some(pattern => urlMatchesPattern(url, pattern));
+    return patterns.find(pattern => {
+        const parts = compilePattern(pattern);
+        return parts !== null &&
+            segments.length === parts.segments.length &&
+            parts.segments.every((segment, index) => segment.test(segments[index]!)) &&
+            parts.query.every(({ key, value }) => url.searchParams.getAll(key).some(candidate => value.test(candidate)));
+    });
 }
 
 function compilePattern(pattern: string): CompiledPattern | null {
+    if (!compiled.has(pattern)) compiled.set(pattern, parsePattern(pattern));
+    return compiled.get(pattern)!;
+}
+
+function parsePattern(pattern: string): CompiledPattern | null {
     if (!pattern.startsWith("/") || pattern.includes("#")) return null;
 
     const [path, queryText, ...rest] = pattern.split("?");
@@ -46,7 +60,7 @@ function compilePattern(pattern: string): CompiledPattern | null {
         query.push({ key: decodeQueryText(pair.slice(0, separator)), value: compilePart(pair.slice(separator + 1), decodeQueryText) });
     }
 
-    return { segments: path!.split("/").filter(Boolean).map(segment => compilePart(segment, decode)), query };
+    return { segments: path!.split("/").filter(Boolean).map(segment => compilePart(segment, decodeSegment)), query };
 }
 
 // Placeholders are found before decoding, so an encoded colon (%3A) stays literal text.
@@ -61,15 +75,7 @@ function compilePart(raw: string, decodeText: (text: string) => string): RegExp 
 }
 
 function decodeQueryText(text: string): string {
-    return decode(text.replace(/\+/g, " "));
-}
-
-function decode(text: string): string {
-    try {
-        return decodeURIComponent(text);
-    } catch {
-        return text;
-    }
+    return decodeSegment(text.replace(/\+/g, " "));
 }
 
 function escapeRegExp(text: string): string {
@@ -79,17 +85,23 @@ function escapeRegExp(text: string): string {
 export const MAX_URL_PATTERNS = 20;
 
 export function mergePatterns(patterns: string[]): string[] {
-    const merged = [...new Set(patterns)];
-    for (let left = 0; left < merged.length; left += 1) {
-        for (let right = left + 1; right < merged.length; right += 1) {
-            const combined = mergePair(merged[left]!, merged[right]!);
-            if (combined === null) continue;
-            merged[left] = combined;
-            merged.splice(right, 1);
-            return mergePatterns(merged);
-        }
+    let merged = [...new Set(patterns)];
+    for (let found = findMerge(merged); found; found = findMerge(merged)) {
+        merged[found.left] = found.combined;
+        merged.splice(found.right, 1);
+        merged = [...new Set(merged)];
     }
     return merged;
+}
+
+function findMerge(patterns: string[]): { left: number; right: number; combined: string } | null {
+    for (let left = 0; left < patterns.length; left += 1) {
+        for (let right = left + 1; right < patterns.length; right += 1) {
+            const combined = mergePair(patterns[left]!, patterns[right]!);
+            if (combined !== null) return { left, right, combined };
+        }
+    }
+    return null;
 }
 
 export function normalizePatterns(patterns: string[]): string[] {
@@ -100,7 +112,7 @@ export function normalizePatterns(patterns: string[]): string[] {
 // with placeholders was already generalized, by the agent or the heuristic, and stays as it is.
 function normalizePattern(pattern: string): string {
     const [path, query] = pattern.split("?");
-    if (!path!.startsWith("/") || new RegExp(PLACEHOLDER.source).test(pattern)) return pattern;
+    if (!path!.startsWith("/") || HAS_PLACEHOLDER.test(pattern)) return pattern;
     const inferred = inferUrlPattern(`https://pattern.invalid${path}`);
     return query === undefined ? inferred : `${inferred}?${query}`;
 }
@@ -133,5 +145,5 @@ function mergePair(left: string, right: string): string | null {
 }
 
 function isWholeSegment(segment: string): boolean {
-    return /^:[a-z][a-z0-9_]*$/.test(segment) || !new RegExp(PLACEHOLDER.source).test(segment);
+    return WHOLE_PLACEHOLDER.test(segment) || !HAS_PLACEHOLDER.test(segment);
 }
