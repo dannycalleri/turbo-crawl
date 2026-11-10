@@ -123,7 +123,7 @@ export type StartCrawlDependencies = {
   ): Promise<T>;
   createDomainStore(input: { targetUrl: string; rootPath?: string }): DomainStore;
   listTemplatesForDomain(store: DomainStore): Promise<ReuseDiscoveryResult<TemplateMatchCandidate>>;
-  addPatternToTemplate(templatePath: string, urlPattern: string): Promise<void>;
+  addPatternToTemplate(templatePath: string, url: string): Promise<void>;
   saveTemplate(
     store: DomainStore,
     template: ExtractionTemplate,
@@ -234,7 +234,7 @@ export async function startCrawl(
       : savedListings.candidates;
     const listingFit = await findListingFit(page, listingCandidates, finalUrl, deps);
     const listingOutcome = async ({ candidate, links, matchedPattern }: ListingFit): Promise<ListingOutcome> => {
-      if (!matchedPattern) await deps.addPatternToTemplate(candidate.path, urlPattern);
+      if (!matchedPattern) await deps.addPatternToTemplate(candidate.path, finalUrl);
       progress(`Read the links with the saved listing template ${candidate.path}.`);
       return {
         ...facts,
@@ -282,7 +282,7 @@ export async function startCrawl(
       const { candidate, result } = decision.trial;
       const matchedPattern = decision.kind === "fit" ? decision.matchedPattern : true;
       if (decision.kind === "fit" && !matchedPattern) {
-        await deps.addPatternToTemplate(candidate.path, urlPattern);
+        await deps.addPatternToTemplate(candidate.path, finalUrl);
       }
       progress(decision.kind === "fit"
         ? `Extracted with the saved template ${candidate.path}.`

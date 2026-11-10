@@ -4,6 +4,8 @@ import path from "path";
 import type { CompactPagePacket } from "./compactPagePacket.ts";
 import { isFieldType, type FieldType, type LLMExtractionResult, type UserSchema } from "./llm-extractor/types.ts";
 import type { TemplateExtractionResult } from "./template-extractor/types.ts";
+import { inferUrlPattern } from "./templating/inferUrlPattern.ts";
+import { capPatterns, mergePatterns, urlMatchesPattern } from "./templating/urlPatterns.ts";
 import type { ExtractionTemplate, ListingTemplate } from "./templating/types.ts";
 import type { PagePacket } from "./types.ts";
 
@@ -250,15 +252,14 @@ async function readTemplateArtifacts<T>(
 
 const patternWrites = new Map<string, Promise<void>>();
 
-export function addPatternToTemplate(templatePath: string, urlPattern: string): Promise<void> {
+export function addPatternToTemplate(templatePath: string, url: string): Promise<void> {
   const previous = patternWrites.get(templatePath) ?? Promise.resolve();
   const next = previous.catch(() => {}).then(async () => {
     const template = await readJsonFile<Record<string, unknown>>(templatePath);
     const { urlPattern: _legacy, ...rest } = template;
     const patterns = readUrlPatterns(template) ?? [];
-    if (!patterns.includes(urlPattern)) {
-      await writeJsonFile(templatePath, { ...rest, urlPatterns: [...patterns, urlPattern] });
-    }
+    if (patterns.some(pattern => urlMatchesPattern(url, pattern))) return;
+    await writeJsonFile(templatePath, { ...rest, urlPatterns: capPatterns(mergePatterns([...patterns, inferUrlPattern(url)])) });
   });
   patternWrites.set(templatePath, next);
   return next.finally(() => {

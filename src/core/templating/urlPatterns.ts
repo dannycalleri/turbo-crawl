@@ -73,3 +73,50 @@ function decode(text: string): string {
 function escapeRegExp(text: string): string {
     return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+export const MAX_URL_PATTERNS = 20;
+
+export function mergePatterns(patterns: string[]): string[] {
+    const merged = [...new Set(patterns)];
+    for (let left = 0; left < merged.length; left += 1) {
+        for (let right = left + 1; right < merged.length; right += 1) {
+            const combined = mergePair(merged[left]!, merged[right]!);
+            if (combined === null) continue;
+            merged[left] = combined;
+            merged.splice(right, 1);
+            return mergePatterns(merged);
+        }
+    }
+    return merged;
+}
+
+export function capPatterns(patterns: string[]): string[] {
+    return patterns.length <= MAX_URL_PATTERNS
+        ? patterns
+        : [patterns[0]!, ...patterns.slice(patterns.length - (MAX_URL_PATTERNS - 1))];
+}
+
+function mergePair(left: string, right: string): string | null {
+    const [leftPath, leftQuery = ""] = left.split("?");
+    const [rightPath, rightQuery = ""] = right.split("?");
+    if (leftQuery !== rightQuery) return null;
+
+    const leftSegments = leftPath!.split("/").filter(Boolean);
+    const rightSegments = rightPath!.split("/").filter(Boolean);
+    if (leftSegments.length !== rightSegments.length) return null;
+
+    const differing = leftSegments.flatMap((segment, index) => segment === rightSegments[index] ? [] : [index]);
+    if (differing.length !== 1) return null;
+
+    const index = differing[0]!;
+    const pair = [leftSegments[index]!, rightSegments[index]!];
+    if (!pair.every(isWholeSegment)) return null;
+
+    const segments = [...leftSegments];
+    segments[index] = pair.every(segment => segment === ":id" || /^\d+$/.test(segment)) ? ":id" : ":slug";
+    return "/" + segments.join("/") + (leftQuery ? `?${leftQuery}` : "");
+}
+
+function isWholeSegment(segment: string): boolean {
+    return /^:[a-z][a-z0-9_]*$/.test(segment) || !new RegExp(PLACEHOLDER.source).test(segment);
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { templateCoversUrl, urlMatchesPattern } from "../src/core/templating/urlPatterns.ts";
+import { capPatterns, MAX_URL_PATTERNS, mergePatterns, templateCoversUrl, urlMatchesPattern } from "../src/core/templating/urlPatterns.ts";
 
 describe("urlMatchesPattern", () => {
   it("matches typed placeholders inside one segment", () => {
@@ -60,5 +60,36 @@ describe("templateCoversUrl", () => {
     const template = { urlPatterns: ["/news/:slug", "/:id/:id/:id/:slug"] };
     expect(templateCoversUrl(template, "https://site.com/2026/11/04/rolex-daytona")).toBe(true);
     expect(templateCoversUrl(template, "https://site.com/about")).toBe(false);
+  });
+});
+
+describe("mergePatterns", () => {
+  it("merges two patterns that differ in one whole segment", () => {
+    expect(mergePatterns(["/rolex/:slug", "/omega/:slug"])).toEqual(["/:slug/:slug"]);
+    expect(mergePatterns(["/news/2025/:slug", "/news/2026/:slug"])).toEqual(["/news/:id/:slug"]);
+    expect(mergePatterns(["/rolex/:slug", "/omega/:slug", "/tudor/:slug"])).toEqual(["/:slug/:slug"]);
+  });
+
+  it("keeps patterns apart when they differ in length, in query, in two segments, or inside a typed segment", () => {
+    expect(mergePatterns(["/itm/:slug/:id", "/itm/:id"])).toEqual(["/itm/:slug/:id", "/itm/:id"]);
+    expect(mergePatterns(["/index.php?route=a", "/home.php?route=b"])).toEqual(["/index.php?route=a", "/home.php?route=b"]);
+    expect(mergePatterns(["/a/b", "/c/d"])).toEqual(["/a/b", "/c/d"]);
+    expect(mergePatterns(["/:brand/:slug--id:id.htm", "/:brand/watches"])).toEqual(["/:brand/:slug--id:id.htm", "/:brand/watches"]);
+  });
+
+  it("removes duplicates", () => {
+    expect(mergePatterns(["/products/:slug", "/products/:slug"])).toEqual(["/products/:slug"]);
+  });
+});
+
+describe("capPatterns", () => {
+  it("keeps the first pattern and the most recent ones", () => {
+    const patterns = Array.from({ length: MAX_URL_PATTERNS + 1 }, (_, index) => `/p${index}/:slug/x${index}`);
+    const capped = capPatterns(patterns);
+
+    expect(capped).toHaveLength(MAX_URL_PATTERNS);
+    expect(capped[0]).toBe("/p0/:slug/x0");
+    expect(capped).not.toContain("/p1/:slug/x1");
+    expect(capped.at(-1)).toBe(`/p${MAX_URL_PATTERNS}/:slug/x${MAX_URL_PATTERNS}`);
   });
 });
