@@ -2,23 +2,26 @@
 
 ## From 0.3 to 0.4
 
-Version 0.4 changes how URL patterns are made and used:
+Version 0.4 changes how turbo-crawl makes and uses URL patterns.
 
-- **The agent writes URL patterns.** `urlPattern` in results can now hold placeholders inside a segment and query keys, such as `/:brand/:slug--id:id.htm` or `/search/index.htm?query=:q`. `templateFit.matchedPattern` is `true` when one of the template's patterns matches the URL.
-- **`stale: true` on more sites.** Sites whose URLs differ for every page, such as marketplaces, now get stale results when their layout changes, instead of a new template.
-- **One more agent call when a detail page is authored.** The CLI now always asks the agent whether a new page is a listing before it authors a template. `crawler.extract()`, the items of a followed listing, and a URL that matches a saved listing's item pattern do not make this call.
-- **A template needs a CSS selector to fit.** A template whose fields read only JSON-LD or meta tags no longer fits a page: at least one required field needs a CSS selector that reads a value. New templates get one from the agent. Author an old JSON-LD-only template again if it stops fitting.
-- **Old template files load with merged patterns.** A template whose `urlPatterns` grew by one entry per page loads as a short list, and is saved that way on its next update. Listing templates store `itemUrlPatterns` and still write `itemUrlPattern`, so 0.3 can read them.
-- **Duplicate templates.** If a page now fails with `AMBIGUOUS_TEMPLATE` because an old and a new template both fit, delete the older file in `data/<domain>/templates/`.
+- **The agent writes the URL patterns.** A `urlPattern` in a result can now have placeholders in a segment, and query keys. Examples: `/:brand/:slug--id:id.htm` and `/search/index.htm?query=:q`. `templateFit.matchedPattern` is `true` when one of the patterns of the template matches the URL.
+- **More sites get `stale: true`.** On some sites, each page has a different URL, for example on marketplaces. When the layout of these sites changes, turbo-crawl now gives a stale result. Before, it authored a new template.
+- **One more agent call before a detail page gets a template.** The CLI now asks the agent if a new page is a listing. Then it authors the template. These pages do not get this call:
+  - pages from `crawler.extract()`;
+  - the items of a listing that turbo-crawl follows;
+  - a URL that matches the item pattern of a saved listing.
+- **A template must have a CSS selector to fit.** When the fields of a template read only JSON-LD or meta tags, the template does not fit. One or more required fields must have a CSS selector that reads a value. The agent gives a CSS selector for each new template. When an old template stops fitting for this reason, author it again.
+- **Old template files load with merged patterns.** In some old templates, `urlPatterns` has one entry for each page. turbo-crawl now loads this list as a short list. It saves the short list when it next updates the file. Listing templates keep `itemUrlPatterns`, and they also keep `itemUrlPattern`. Thus version 0.3 can read them.
+- **Duplicate templates.** An old template and a new template can both fit a page. The page then fails with `AMBIGUOUS_TEMPLATE`. To correct this, delete the older file in `data/<domain>/templates/`.
 
 ## From 0.1 to 0.2
 
-Version 0.2 changes some defaults and outputs:
+Version 0.2 changes some defaults and outputs.
 
-- **The TUI is gone.** `turbo-crawl crawl` always runs headless, and `--tui` is now an unknown option (exit 2).
-- **Honest user agent.** Requests send `turbo-crawl/<version> (+https://github.com/dannycalleri/turbo-crawl)` instead of a Chrome user agent. Set your own with `--user-agent`, `turbo-crawl.json` or `~/.config/turbo-crawl/config.json`.
-- **robots.txt is respected.** A disallowed URL is not fetched and the CLI exits 4. `--ignore-robots` turns the check off.
-- **Templates are chosen by page content, not by URL pattern.** Template files are now `templates/<id>.json` with a list of `urlPatterns`. Files from 0.1.0 (one `urlPattern`) are still read. A `text` field must now have at least 200 characters for a template to fit: use `string` for short values.
-- **New exit codes and JSON errors.** Errors print `{ "ok": false, "code", "message" }` on stdout (an unknown option or a missing URL still prints plain text on stderr, exit 2). Exit 3 is `TEMPLATE_MISSING`, exit 4 is `ROBOTS_DISALLOWED`. HTTP 401, 403 and 429 give `BLOCKED`; other 4xx and 5xx give `HTTP_ERROR`.
-- **Dates in prose are not parsed.** A `date` field keeps only machine-readable dates (ISO 8601, RFC 2822, Unix time); `4 novembre 2026` becomes `null`.
+- **There is no TUI.** `turbo-crawl crawl` always runs in headless mode. `--tui` is now an unknown option, and the CLI exits with code 2.
+- **An honest user agent.** turbo-crawl sends `turbo-crawl/<version> (+https://github.com/dannycalleri/turbo-crawl)`. Before, it sent a Chrome user agent. To set a different user agent, use `--user-agent`, `turbo-crawl.json` or `~/.config/turbo-crawl/config.json`.
+- **turbo-crawl obeys robots.txt.** It does not get a URL that robots.txt does not allow, and the CLI exits with code 4. To stop the check, use `--ignore-robots`.
+- **turbo-crawl selects templates by page content, not by URL pattern.** The template files are now `templates/<id>.json`, with a list of `urlPatterns`. turbo-crawl can still read the files from 0.1.0, which have one `urlPattern`. A `text` field must now have 200 characters or more for a template to fit. For short values, use `string`.
+- **New exit codes and JSON errors.** The CLI writes errors to stdout as `{ "ok": false, "code", "message" }`. For an unknown option or a missing URL, it still writes plain text to stderr and exits with code 2. Exit code 3 is `TEMPLATE_MISSING`. Exit code 4 is `ROBOTS_DISALLOWED`. HTTP 401, 403 and 429 give `BLOCKED`. All other 4xx and 5xx statuses give `HTTP_ERROR`.
+- **turbo-crawl does not read dates in text.** A `date` field keeps only dates in a machine format: ISO 8601, RFC 2822 or Unix time. For example, `4 novembre 2026` becomes `null`.
 - **`playwright` is a peer dependency** (`>=1.50 <2`). npm 7 and later install it for you.
