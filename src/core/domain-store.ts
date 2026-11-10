@@ -5,7 +5,7 @@ import type { CompactPagePacket } from "./compactPagePacket.ts";
 import { isFieldType, type FieldType, type LLMExtractionResult, type UserSchema } from "./llm-extractor/types.ts";
 import type { TemplateExtractionResult } from "./template-extractor/types.ts";
 import { inferUrlPattern } from "./templating/inferUrlPattern.ts";
-import { capPatterns, mergePatterns, urlMatchesPattern } from "./templating/urlPatterns.ts";
+import { normalizePatterns, urlMatchesPattern } from "./templating/urlPatterns.ts";
 import type { ExtractionTemplate, ListingTemplate } from "./templating/types.ts";
 import type { PagePacket } from "./types.ts";
 
@@ -189,7 +189,9 @@ export async function listListingTemplates(
   store: DomainStore,
 ): Promise<ReuseDiscoveryResult<ListingTemplateArtifact>> {
   return readTemplateArtifacts(store.listingsPath, "listing template", (value, artifactPath, warnings) => {
-    if (isListingTemplate(value) && normalizeStoredDomain(value.domain) === store.domain) return value;
+    if (isListingTemplate(value) && normalizeStoredDomain(value.domain) === store.domain) {
+      return { ...value, urlPatterns: normalizePatterns(value.urlPatterns) };
+    }
     pushTemplateValidationWarning(warnings, artifactPath, `Listing template is invalid or does not match domain ${store.domain}.`);
     return null;
   });
@@ -259,7 +261,7 @@ export function addPatternToTemplate(templatePath: string, url: string): Promise
     const { urlPattern: _legacy, ...rest } = template;
     const patterns = readUrlPatterns(template) ?? [];
     if (patterns.some(pattern => urlMatchesPattern(url, pattern))) return;
-    await writeJsonFile(templatePath, { ...rest, urlPatterns: capPatterns(mergePatterns([...patterns, inferUrlPattern(url)])) });
+    await writeJsonFile(templatePath, { ...rest, urlPatterns: normalizePatterns([...patterns, inferUrlPattern(url)]) });
   });
   patternWrites.set(templatePath, next);
   return next.finally(() => {
@@ -489,9 +491,9 @@ function validateTemplateArtifact(
 function readUrlPatterns(value: Record<string, unknown>): string[] | null {
   if (Array.isArray(value.urlPatterns)) {
     const patterns = value.urlPatterns.filter((pattern): pattern is string => typeof pattern === "string");
-    return patterns.length > 0 && patterns.length === value.urlPatterns.length ? patterns : null;
+    return patterns.length > 0 && patterns.length === value.urlPatterns.length ? normalizePatterns(patterns) : null;
   }
-  return typeof value.urlPattern === "string" ? [value.urlPattern] : null;
+  return typeof value.urlPattern === "string" ? normalizePatterns([value.urlPattern]) : null;
 }
 
 function pushTemplateValidationWarning(
