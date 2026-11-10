@@ -5,6 +5,10 @@ type CompiledPattern = {
 
 const PLACEHOLDER = /:([a-z][a-z0-9_]*)/g;
 
+export function isValidPattern(pattern: string): boolean {
+    return compilePattern(pattern) !== null;
+}
+
 export function urlMatchesPattern(rawUrl: string, pattern: string): boolean {
     const compiled = compilePattern(pattern);
     if (!compiled) return false;

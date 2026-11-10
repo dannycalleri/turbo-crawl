@@ -2,12 +2,15 @@ import { z } from "zod";
 import type { ChatMessage } from "../llm-extractor/providers/LLMProvider";
 import type { UserSchema } from "../llm-extractor/types";
 import type { PagePacket } from "../types";
+import type { PatternAnswer } from "./checkUrlPattern";
 import type { SelectorValidation } from "./validateSelectors";
 
 export const AUTHOR_SELECTOR_KINDS = ["jsonld", "meta", "css", "table"] as const;
 export const AUTHOR_ATTRIBUTES = ["textContent", "href", "src", "content", "json"] as const;
 const ANY_ATTRIBUTE = /^attr:[A-Za-z_:][-A-Za-z0-9_:.]*$/;
 export const MAX_SELECTORS_PER_FIELD = 4;
+export const MAX_PROMPT_LINKS = 80;
+const MAX_EXAMPLE_LINKS = 10;
 
 export type AuthoredSelector = {
     kind: typeof AUTHOR_SELECTOR_KINDS[number];
@@ -22,11 +25,12 @@ export type AuthoredField = {
 
 export type AuthorResponse = {
     fields: Record<string, AuthoredField>;
+    pattern: PatternAnswer | null;
 };
 
 export type PageContextForAgent = {
     url: string;
-    urlPattern: string;
+    urlPattern?: string;
     skeleton: string;
     pagePacket: PagePacket;
 };
@@ -51,7 +55,13 @@ Rules:
 - The selector must point at the element holding just the value (e.g. the price element, not its whole card).
 - expectedSample is the raw text you expect the first selector to read on this page, or null if the field is absent.`;
 
-export function buildAuthorResponseSchema(schema: UserSchema): unknown {
+const PATTERN_RULES = `URL pattern:
+- urlPattern is the URL pattern of every page of the same type as this page on this site.
+- Start with "/". Keep as literal text the parts that are the same on every page of this type. Replace the parts that change from page to page with a placeholder: ":" and a lowercase name, e.g. "/:brand/:slug--id:id.htm" or "/index.php?product_id=:id&route=product/product". ":id" stands for digits only; any other placeholder stands for any text without "/". Add query keys only when they identify the page.
+- sameTypeLinks: up to ${MAX_EXAMPLE_LINKS} links from the list of same-site links that are pages of the same type. otherTypeLinks: up to ${MAX_EXAMPLE_LINKS} links from that list that are pages of other types (listings, categories, help pages). Copy each link exactly.
+- The pattern must match this page's URL and every sameTypeLinks link, and must not match any otherTypeLinks link.`;
+
+export function buildAuthorResponseSchema(schema: UserSchema, askPattern: boolean): unknown {
     const fieldNames = Object.keys(schema);
     const selectorSchema = {
         type: "object",
@@ -76,6 +86,11 @@ export function buildAuthorResponseSchema(schema: UserSchema): unknown {
         additionalProperties: false,
     };
 
+    const links = { type: "array", items: { type: "string" }, maxItems: MAX_EXAMPLE_LINKS };
+    const patternProperties = askPattern
+        ? { urlPattern: { type: "string" }, sameTypeLinks: links, otherTypeLinks: links }
+        : {};
+
     return {
         type: "object",
         properties: {
@@ -85,11 +100,18 @@ export function buildAuthorResponseSchema(schema: UserSchema): unknown {
                 required: fieldNames,
                 additionalProperties: false,
             },
+            ...patternProperties,
         },
-        required: ["fields"],
+        required: ["fields", ...Object.keys(patternProperties)],
         additionalProperties: false,
     };
 }
+
+const patternAnswerSchema = z.object({
+    urlPattern: z.string(),
+    sameTypeLinks: z.array(z.string()).transform(links => links.slice(0, MAX_EXAMPLE_LINKS)),
+    otherTypeLinks: z.array(z.string()).transform(links => links.slice(0, MAX_EXAMPLE_LINKS)),
+});
 
 const authoredSelectorSchema = z.object({
     kind: z.enum(AUTHOR_SELECTOR_KINDS),
@@ -130,12 +152,14 @@ export function parseAuthorResponse(raw: unknown, schema: UserSchema): AuthorRes
         };
     }
 
-    return { fields };
+    const pattern = patternAnswerSchema.safeParse(raw);
+    return { fields, pattern: pattern.success ? pattern.data : null };
 }
 
 export function buildAuthorMessages(input: {
     schema: UserSchema;
     page: PageContextForAgent;
+    links: string[];
 }): ChatMessage[] {
     return [
         { role: "system", content: SYSTEM_PROMPT },
@@ -144,7 +168,9 @@ export function buildAuthorMessages(input: {
             content: [
                 `Write a template for these fields (name: type): ${formatSchema(input.schema)}`,
                 SELECTOR_RULES,
+                PATTERN_RULES,
                 formatPageContext(input.page),
+                formatLinks(input.links),
             ].join("\n\n"),
         },
     ];
@@ -155,6 +181,8 @@ export function buildRepairMessages(input: {
     page: PageContextForAgent;
     previous: AuthorResponse;
     failures: Record<string, SelectorValidation[]>;
+    links: string[];
+    patternFailure: string | null;
 }): ChatMessage[] {
     const failedFields = Object.keys(input.failures);
     const report = failedFields
@@ -175,13 +203,25 @@ export function buildRepairMessages(input: {
         {
             role: "user",
             content: [
-                `Your previous selectors for some fields failed when run on the live page. Write new selectors for these fields only: ${formatSchema(repairSchema)}`,
-                `Failure report:\n${report}`,
-                SELECTOR_RULES,
+                ...(failedFields.length > 0
+                    ? [
+                        `Your previous selectors for some fields failed when run on the live page. Write new selectors for these fields only: ${formatSchema(repairSchema)}`,
+                        `Failure report:\n${report}`,
+                        SELECTOR_RULES,
+                    ]
+                    : ["Your previous selectors all worked. Leave fields empty."]),
+                ...(input.patternFailure !== null
+                    ? [`Your previous urlPattern ${JSON.stringify(input.previous.pattern?.urlPattern ?? null)} failed a check: ${input.patternFailure}. Write a new urlPattern, sameTypeLinks and otherTypeLinks.`, PATTERN_RULES]
+                    : []),
                 formatPageContext(input.page),
+                ...(input.patternFailure !== null ? [formatLinks(input.links)] : []),
             ].join("\n\n"),
         },
     ];
+}
+
+function formatLinks(links: string[]): string {
+    return `Same-site links on this page:\n${links.join("\n") || "(none)"}`;
 }
 
 function formatSchema(schema: UserSchema): string {
@@ -192,7 +232,7 @@ export function formatPageContext(page: PageContextForAgent): string {
     const { pagePacket } = page;
     const sections = [
         `URL: ${page.url}`,
-        `URL pattern: ${page.urlPattern}`,
+        ...(page.urlPattern ? [`URL pattern: ${page.urlPattern}`] : []),
         `Page title: ${pagePacket.title ?? "(none)"}`,
         `Meta tags:\n${formatMeta(pagePacket) || "(none)"}`,
         `JSON-LD:\n${formatJsonLd(pagePacket) || "(none)"}`,

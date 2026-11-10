@@ -41,7 +41,7 @@ function css(selector: string) {
 
 describe("buildAuthorResponseSchema", () => {
   it("requires exactly the schema fields and nothing else", () => {
-    const result = buildAuthorResponseSchema(schema) as {
+    const result = buildAuthorResponseSchema(schema, false) as {
       required: string[];
       additionalProperties: boolean;
       properties: { fields: { properties: Record<string, unknown>; required: string[]; additionalProperties: boolean } };
@@ -53,6 +53,13 @@ describe("buildAuthorResponseSchema", () => {
     expect(Object.keys(fields.properties)).toEqual(["title", "price"]);
     expect(fields.required).toEqual(["title", "price"]);
     expect(fields.additionalProperties).toBe(false);
+  });
+
+  it("asks for the URL pattern and its example links only when asked", () => {
+    const asked = buildAuthorResponseSchema(schema, true) as { required: string[]; properties: Record<string, unknown> };
+
+    expect(asked.required).toEqual(["fields", "urlPattern", "sameTypeLinks", "otherTypeLinks"]);
+    expect(Object.keys(asked.properties)).toEqual(["fields", "urlPattern", "sameTypeLinks", "otherTypeLinks"]);
   });
 });
 
@@ -107,6 +114,17 @@ describe("parseAuthorResponse", () => {
     expect(parsed.fields.price!.expectedSample).toBeNull();
   });
 
+  it("reads the pattern answer, or null when it is missing", () => {
+    const fields = { title: { selectors: [], expectedSample: null }, price: { selectors: [], expectedSample: null } };
+    const parsed = parseAuthorResponse(
+      { fields, urlPattern: "/products/:slug", sameTypeLinks: ["https://shop.example/products/a"], otherTypeLinks: [] },
+      schema,
+    );
+
+    expect(parsed.pattern).toEqual({ urlPattern: "/products/:slug", sameTypeLinks: ["https://shop.example/products/a"], otherTypeLinks: [] });
+    expect(parseAuthorResponse({ fields }, schema).pattern).toBeNull();
+  });
+
   it("rejects an answer missing a field", () => {
     expect(() => parseAuthorResponse({ fields: { title: { selectors: [] } } }, schema)).toThrow(
       "did not match the template format",
@@ -125,7 +143,9 @@ describe("buildRepairMessages", () => {
     const messages = buildRepairMessages({
       schema,
       page,
-      previous: { fields: {} },
+      previous: { fields: {}, pattern: null },
+      links: [],
+      patternFailure: null,
       failures: {
         price: [
           {
@@ -145,5 +165,29 @@ describe("buildRepairMessages", () => {
     expect(prompt).toContain("value is not a valid number");
     expect(prompt).toContain('(read "Clock and more")');
     expect(prompt).not.toContain("title: string");
+    expect(prompt).not.toContain("urlPattern");
+  });
+
+  it("asks only for a new pattern when the selectors worked and the pattern failed", () => {
+    const page: PageContextForAgent = {
+      url: "https://shop.example/products/clock-1",
+      urlPattern: "/products/:slug",
+      skeleton: "body",
+      pagePacket: emptyPacket(),
+    };
+    const messages = buildRepairMessages({
+      schema: {},
+      page,
+      previous: { fields: {}, pattern: { urlPattern: "/:a/:b", sameTypeLinks: [], otherTypeLinks: [] } },
+      failures: {},
+      links: ["https://shop.example/category/clocks"],
+      patternFailure: "/:a/:b matches https://shop.example/category/clocks, which you listed as another page type",
+    });
+    const prompt = messages.find(message => message.role === "user")!.content;
+
+    expect(prompt).toContain("Leave fields empty");
+    expect(prompt).toContain('Your previous urlPattern "/:a/:b" failed a check: /:a/:b matches https://shop.example/category/clocks');
+    expect(prompt).toContain("Same-site links on this page:\nhttps://shop.example/category/clocks");
+    expect(prompt).not.toContain("Failure report");
   });
 });

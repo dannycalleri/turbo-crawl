@@ -68,6 +68,9 @@ const claudeEnvelope = {
         expectedSample: null,
       },
     },
+    urlPattern: "/products/:slug",
+    sameTypeLinks: [],
+    otherTypeLinks: [],
   },
 };
 
