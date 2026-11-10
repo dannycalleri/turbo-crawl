@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { spawn } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -23,8 +23,8 @@ function productPage(title: string, price: string): string {
 </html>`;
 }
 
-function categoryPage(title: string, slugs: string[], next: string | null): string {
-  const cards = slugs.map(slug => `<li><a class="card-link" href="/products/${slug}">${slug}</a></li>`).join("");
+function categoryPage(title: string, slugs: string[], next: string | null, hrefOf = (slug: string) => `/products/${slug}`): string {
+  const cards = slugs.map(slug => `<li><a class="card-link" href="${hrefOf(slug)}">${slug}</a></li>`).join("");
   return `<!doctype html>
 <html>
   <head><title>${title} | Shop</title></head>
@@ -40,7 +40,13 @@ function categoryPage(title: string, slugs: string[], next: string | null): stri
 
 const watchSlugs = ["watch-10", "watch-11", "watch-12", "watch-13", "watch-14", "watch-15"];
 
+const brandPaths = ["/rolex/rolex-1", "/omega/omega-2", "/tudor/tudor-3", "/rolex/rolex-4", "/omega/omega-5"];
+
 const pages: Record<string, string> = {
+  "/category/brands/all": categoryPage("Brands", brandPaths.slice(0, 3), "/category/brands/all?page=2", href => href),
+  "/category/brands/all?page=2": categoryPage("Brands", brandPaths.slice(3), null, href => href),
+  ...Object.fromEntries(brandPaths.slice(0, 4).map((href, index) => [href, productPage(`Watch ${index + 1}`, `€${index + 1}.00`)])),
+  "/omega/omega-5": "<!doctype html><html><head><title>Omega | Shop</title></head><body><main><h2 class=\"name\">Omega</h2><span class=\"cost\">€5.00</span></main></body></html>",
   "/category/clocks": categoryPage("Clocks", ["clock-1", "watch-2", "clock-4", "clock-5", "clock-6"], "/category/clocks?page=2"),
   "/category/watches": categoryPage("Watches", watchSlugs.slice(0, 4), "/category/watches?page=2"),
   "/category/watches?page=2": categoryPage("Watches", watchSlugs.slice(4), null),
@@ -84,6 +90,16 @@ const classifyEnvelope = {
     pageUrlPattern: "/category/:slug",
     itemUrlPattern: "/products/:slug",
   },
+};
+
+const brandEnvelope = {
+  ...claudeEnvelope,
+  structured_output: { ...claudeEnvelope.structured_output, urlPattern: "/:brand/:slug" },
+};
+
+const brandClassifyEnvelope = {
+  ...claudeEnvelope,
+  structured_output: { ...classifyEnvelope.structured_output, pageUrlPattern: "/category/brands/:slug", itemUrlPattern: "/:brand/:slug" },
 };
 
 const detailEnvelope = {
@@ -141,18 +157,24 @@ describe("turbo-crawl CLI end to end", () => {
     const envelopeFile = path.join(workDir, "envelope.json");
     const classifyFile = path.join(workDir, "classify.json");
     const detailFile = path.join(workDir, "detail.json");
+    const brandFile = path.join(workDir, "brand.json");
+    const brandClassifyFile = path.join(workDir, "brand-classify.json");
     await mkdir(binDir, { recursive: true });
     await writeFile(envelopeFile, JSON.stringify(claudeEnvelope), "utf8");
     await writeFile(classifyFile, JSON.stringify(classifyEnvelope), "utf8");
     await writeFile(detailFile, JSON.stringify(detailEnvelope), "utf8");
+    await writeFile(brandFile, JSON.stringify(brandEnvelope), "utf8");
+    await writeFile(brandClassifyFile, JSON.stringify(brandClassifyEnvelope), "utf8");
     await writeFile(
       path.join(binDir, "claude"),
       [
         "#!/bin/sh",
         'prompt=$(cat)',
         `echo call >> "${counterFile}"`,
-        `case "$prompt" in *"listing or a detail page"*) ;; *) cat "${envelopeFile}"; exit 0 ;; esac`,
-        `if printf '%s' "$prompt" | grep -q '^URL: .*/category/'; then cat "${classifyFile}"; else cat "${detailFile}"; fi`,
+        `url=$(printf '%s' "$prompt" | grep -m1 '^URL: ')`,
+        `case "$prompt" in *"listing or a detail page"*) ;; *)`,
+        `  case "$url" in */rolex/*|*/omega/*|*/tudor/*) cat "${brandFile}" ;; *) cat "${envelopeFile}" ;; esac; exit 0 ;; esac`,
+        `case "$url" in */category/brands/*) cat "${brandClassifyFile}" ;; */category/*) cat "${classifyFile}" ;; *) cat "${detailFile}" ;; esac`,
         "",
       ].join("\n"),
       "utf8",
@@ -313,6 +335,41 @@ describe("turbo-crawl CLI end to end", () => {
       expect(again.code).toBe(0);
       expect(again.stdout.trim().split("\n")).toHaveLength(6);
       expect((await agentCalls()) - before).toBe(2);
+    },
+    60_000,
+  );
+
+  it(
+    "follows a listing: every item gets the template's pattern, and a redesigned item is stale, with no extra agent call",
+    async () => {
+      if (buildError !== null) return;
+
+      const base = `http://127.0.0.1:${server!.port}`;
+      const dataDir = path.join(workDir, "data-brands");
+      const agentCalls = async () => (await readFile(counterFile, "utf8").catch(() => "")).trim().split("\n").filter(Boolean).length;
+      const before = await agentCalls();
+
+      const run = await runCli(
+        ["crawl", `${base}/category/brands/all`, "--fields", "title:string,price:number", "--delay-ms", "0", "--data-dir", dataDir],
+        env,
+        workDir,
+      );
+
+      expect(run.stderr).toContain("Crawled 2 listing page(s): 5 item(s) extracted, 0 failed.");
+      expect(run.code).toBe(0);
+      const items = run.stdout.trim().split("\n").map(line => JSON.parse(line));
+      expect(items.map(item => [item.url, item.urlPattern, item.path, item.stale])).toEqual([
+        [`${base}/rolex/rolex-1`, "/:brand/:slug", "authored", false],
+        [`${base}/omega/omega-2`, "/:brand/:slug", "template-reuse", false],
+        [`${base}/tudor/tudor-3`, "/:brand/:slug", "template-reuse", false],
+        [`${base}/rolex/rolex-4`, "/:brand/:slug", "template-reuse", false],
+        [`${base}/omega/omega-5`, "/:brand/:slug", "stale-template", true],
+      ]);
+      expect(items[4].missing).toEqual(["price", "title"]);
+      expect((await agentCalls()) - before).toBe(2);
+      const templateDir = path.join(dataDir, "127.0.0.1", "templates");
+      const [templateFile] = await readdir(templateDir);
+      expect(JSON.parse(await readFile(path.join(templateDir, templateFile!), "utf8")).urlPatterns).toEqual(["/:brand/:slug"]);
     },
     60_000,
   );
