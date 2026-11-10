@@ -72,15 +72,16 @@ You can also run it without installing: `npx @fragmentoid/turbo-crawl crawl <url
 
 ## Why turbo-crawl
 
-| | |
+| You get | In practice |
 |---|---|
-| **One model call per layout, not per page.** | The agent writes a template once. Every later page with that layout is read in a browser with no model call: fast, free and the same every time. |
-| **No selectors to write or maintain.** | Name the fields and their types, or let the agent suggest them. The agent writes the selectors; turbo-crawl runs each one on the live page and sends the failures back for repair. |
-| **Templates follow the content, not the URL.** | A template is used on every page where its fields read valid values, whatever the URL. When a known kind of page stops fitting, the result is marked `stale`, so you know the site changed. |
-| **Whole listings, with pagination.** | Point it at a category or search page, and it extracts every item and follows the next pages, as one JSON line per item. |
-| **Your agent, your login.** | It runs Claude Code or Codex in headless mode with no tools and no access to your files, and sends only a text outline of the page. There are no API keys to configure. |
-| **Polite by default.** | It sends an honest user agent, respects robots.txt and reports each page's TDM and robots signals in the result. |
-| **Templates are plain JSON.** | Review them, fix a selector by hand, commit them, and extract in CI with no agent at all. |
+| **One model call per layout** | The agent writes a template once. Every later page with that layout is read with no model call. |
+| **No selectors to write** | Name the fields, or let the agent suggest them. turbo-crawl tests each selector on the live page. |
+| **New URLs are no problem** | A template is matched by what the page contains, not by its URL. |
+| **You know when a site changes** | When a known page stops fitting its template, the result is marked `stale`. |
+| **Whole listings** | Give it a category or search page. It extracts every item and follows the next pages. |
+| **The agent you already use** | Claude Code or Codex, with your own login. No API keys, and the agent never sees your files. |
+| **Your user agent, your rules** | Set your own with `--user-agent`, a [config file](docs/reference.md#user-agent) or the library option. robots.txt is respected by default. |
+| **No model in production** | Templates are plain JSON. Commit them and extract in CI with no agent. |
 
 ## Examples
 
