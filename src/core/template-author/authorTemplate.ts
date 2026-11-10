@@ -12,7 +12,9 @@ import {
     buildAuthorResponseSchema,
     buildRepairMessages,
     MAX_PROMPT_LINKS,
+    MAX_SELECTORS_PER_FIELD,
     parseAuthorResponse,
+    type AuthoredSelector,
     type AuthorResponse,
     type PageContextForAgent,
 } from "./authorPrompt";
@@ -73,21 +75,25 @@ export async function authorTemplate(input: AuthorTemplateInput): Promise<Author
     let previous: AuthorResponse | null = null;
     let acceptedPattern: string | null = null;
     let patternFailure: string | null = null;
+    const bodyMissing = () => !Object.values(passing).some(results => results.some(result => result.selector.kind === "css"));
 
     for (let round = 0; round <= maxRepairs; round += 1) {
-        const pendingSchema: UserSchema = round === 0
+        const askBody = round > 0 && Object.keys(failures).length === 0 && bodyMissing();
+        const pendingSchema: UserSchema = round === 0 || askBody
             ? input.schema
             : Object.fromEntries(Object.keys(failures).map(name => [name, input.schema[name]!]));
         const askPattern = acceptedPattern === null;
 
         const messages = round === 0 || !previous
             ? buildAuthorMessages({ schema: pendingSchema, page: pageContext, links })
-            : buildRepairMessages({ schema: pendingSchema, page: pageContext, previous, failures, links, patternFailure });
+            : buildRepairMessages({ schema: pendingSchema, page: pageContext, previous, failures, links, patternFailure, bodyMissing: askBody });
 
         const pending = [...Object.keys(pendingSchema), ...(askPattern ? ["the URL pattern"] : [])];
         progress(round === 0
             ? `Asking ${input.provider.name} to write selectors for ${Object.keys(pendingSchema).length} fields…`
-            : `Repair round ${round}: asking ${input.provider.name} to fix ${pending.join(", ")}…`);
+            : askBody
+                ? `Repair round ${round}: asking ${input.provider.name} for css selectors for ${pending.join(", ")}…`
+                : `Repair round ${round}: asking ${input.provider.name} to fix ${pending.join(", ")}…`);
 
         const response = await input.provider.completeStructured({
             model: input.model ?? "",
@@ -117,16 +123,17 @@ export async function authorTemplate(input: AuthorTemplateInput): Promise<Author
             validations[fieldName] = results;
 
             const passed = results.filter(result => result.passed);
+            const kept = passing[fieldName] ?? [];
             if (passed.length > 0) {
-                passing[fieldName] = passed;
-            } else {
+                passing[fieldName] = mergeSelectors(kept, passed);
+            } else if (kept.length === 0) {
                 failures[fieldName] = results;
             }
         }
 
         calls.push({ round, messages, response: response.raw, validations });
 
-        if (Object.keys(failures).length === 0 && acceptedPattern !== null) {
+        if (Object.keys(failures).length === 0 && acceptedPattern !== null && !bodyMissing()) {
             break;
         }
     }
@@ -137,6 +144,9 @@ export async function authorTemplate(input: AuthorTemplateInput): Promise<Author
             `No working selector found for "${name}" after ${maxRepairs} repair round(s); the field will be null.`),
         ...(acceptedPattern === null
             ? [`No URL pattern from ${input.provider.name} passed the checks after ${maxRepairs} repair round(s) (${patternFailure}); the template uses ${urlPattern}.`]
+            : []),
+        ...(bodyMissing()
+            ? [`No field got a working css selector after ${maxRepairs} repair round(s); the template will not fit when it is reused.`]
             : []),
     ];
 
@@ -172,4 +182,18 @@ export async function authorTemplate(input: AuthorTemplateInput): Promise<Author
         model: input.model ?? null,
         calls,
     };
+}
+
+// Keeps the field within MAX_SELECTORS_PER_FIELD, and always leaves room for one new selector,
+// css first, so a css selector asked for in a repair round is never cut.
+function mergeSelectors(kept: SelectorValidation[], passed: SelectorValidation[]): SelectorValidation[] {
+    const added = passed
+        .filter(result => !kept.some(other => sameSelector(other.selector, result.selector)))
+        .sort((left, right) => Number(right.selector.kind === "css") - Number(left.selector.kind === "css"));
+    const room = Math.min(added.length, Math.max(1, MAX_SELECTORS_PER_FIELD - kept.length));
+    return [...kept.slice(0, MAX_SELECTORS_PER_FIELD - room), ...added.slice(0, room)];
+}
+
+function sameSelector(left: AuthoredSelector, right: AuthoredSelector): boolean {
+    return left.kind === right.kind && left.selector === right.selector && left.attribute === right.attribute;
 }

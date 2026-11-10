@@ -248,6 +248,86 @@ describe("authorTemplate on a live page", () => {
     expect(authored.template.fields.title!.selectors.map(selector => selector.selector)).toEqual(["h1.product-title"]);
   });
 
+  it("asks for css selectors when every working selector reads JSON-LD, and keeps both", async () => {
+    if (!page || !pagePacket) {
+      expect(browserLaunchError).toBeTruthy();
+      return;
+    }
+
+    const productNode = pagePacket.jsonLd.find(block => block.type === "Product")!.nodeId;
+    const jsonLd = (path: string) => ({ kind: "jsonld", selector: `${productNode}:${path}`, attribute: "json" });
+    const { provider, requests } = scriptedProvider([
+      { fields: { title: { selectors: [jsonLd("$.name")], expectedSample: "Clock" }, price: { selectors: [jsonLd("$.offers.price")], expectedSample: "49.00" } }, ...productPattern },
+      { fields: { title: { selectors: [css("h1.product-title")], expectedSample: "Clock" }, price: { selectors: [], expectedSample: null } } },
+    ]);
+
+    const authored = await authorTemplate({ schema, page, pagePacket, skeleton: "body", provider });
+
+    expect(requests).toHaveLength(2);
+    expect(requests[1]!.messages.find(message => message.role === "user")!.content).toContain("None of your working selectors is a css selector");
+    expect(authored.warnings).toEqual([]);
+    expect(authored.template.fields.title!.selectors.map(selector => selector.kind)).toEqual(["jsonld", "css"]);
+    expect(authored.template.fields.price!.selectors.map(selector => selector.kind)).toEqual(["jsonld"]);
+  });
+
+  it("keeps at most 4 selectors per field and makes room for the css selector", async () => {
+    if (!page || !pagePacket) {
+      expect(browserLaunchError).toBeTruthy();
+      return;
+    }
+
+    const productNode = pagePacket.jsonLd.find(block => block.type === "Product")!.nodeId;
+    const nonCss = [
+      { kind: "jsonld", selector: `${productNode}:$.name`, attribute: "json" },
+      { kind: "meta", selector: "meta[property='og:title']@content", attribute: "content" },
+      { kind: "meta", selector: "meta[name='description']@content", attribute: "content" },
+      { kind: "meta", selector: "@currentUrl", attribute: "content" },
+    ];
+    const { provider } = scriptedProvider([
+      { fields: { title: { selectors: nonCss, expectedSample: "Clock" }, price: { selectors: [{ kind: "jsonld", selector: `${productNode}:$.offers.price`, attribute: "json" }], expectedSample: "49.00" } }, ...productPattern },
+      {
+        fields: {
+          title: { selectors: [{ kind: "jsonld", selector: `${productNode}:$.offers.price`, attribute: "json" }, css("h1.product-title")], expectedSample: "Clock" },
+          price: { selectors: [], expectedSample: null },
+        },
+      },
+    ]);
+
+    const authored = await authorTemplate({ schema, page, pagePacket, skeleton: "body", provider });
+
+    expect(authored.template.fields.title!.selectors.map(selector => selector.selector)).toEqual([
+      `${productNode}:$.name`,
+      "meta[property='og:title']@content",
+      "meta[name='description']@content",
+      "h1.product-title",
+    ]);
+  });
+
+  it("warns that the template will not fit on reuse when the agent never gives a working css selector", async () => {
+    if (!page || !pagePacket) {
+      expect(browserLaunchError).toBeTruthy();
+      return;
+    }
+
+    const productNode = pagePacket.jsonLd.find(block => block.type === "Product")!.nodeId;
+    const { provider, requests } = scriptedProvider([
+      {
+        fields: {
+          title: { selectors: [{ kind: "jsonld", selector: `${productNode}:$.name`, attribute: "json" }], expectedSample: "Clock" },
+          price: { selectors: [{ kind: "jsonld", selector: `${productNode}:$.offers.price`, attribute: "json" }], expectedSample: "49.00" },
+        },
+        ...productPattern,
+      },
+    ]);
+
+    const authored = await authorTemplate({ schema, page, pagePacket, skeleton: "body", provider, maxRepairs: 1 });
+
+    expect(requests).toHaveLength(2);
+    expect(authored.warnings).toEqual([
+      "No field got a working css selector after 1 repair round(s); the template will not fit when it is reused.",
+    ]);
+  });
+
   it("saves an empty field with a warning when the agent never finds a working selector", async () => {
     if (!page || !pagePacket) {
       expect(browserLaunchError).toBeTruthy();

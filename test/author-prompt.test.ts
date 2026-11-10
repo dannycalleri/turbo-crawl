@@ -146,6 +146,7 @@ describe("buildRepairMessages", () => {
       previous: { fields: {}, pattern: null },
       links: [],
       patternFailure: null,
+      bodyMissing: false,
       failures: {
         price: [
           {
@@ -182,6 +183,7 @@ describe("buildRepairMessages", () => {
       failures: {},
       links: ["https://shop.example/category/clocks"],
       patternFailure: "/:a/:b matches https://shop.example/category/clocks, which you listed as another page type",
+      bodyMissing: false,
     });
     const prompt = messages.find(message => message.role === "user")!.content;
 
@@ -189,5 +191,22 @@ describe("buildRepairMessages", () => {
     expect(prompt).toContain('Your previous urlPattern "/:a/:b" failed a check: /:a/:b matches https://shop.example/category/clocks');
     expect(prompt).toContain("Same-site links on this page:\nhttps://shop.example/category/clocks");
     expect(prompt).not.toContain("Failure report");
+  });
+
+  it("asks for a css selector for every field when none of the working selectors is css", () => {
+    const page: PageContextForAgent = { url: "https://shop.example/products/clock-1", skeleton: "body", pagePacket: emptyPacket() };
+    const prompt = buildRepairMessages({
+      schema,
+      page,
+      previous: { fields: {}, pattern: null },
+      failures: {},
+      links: [],
+      patternFailure: null,
+      bodyMissing: true,
+    }).find(message => message.role === "user")!.content;
+
+    expect(prompt).toContain("None of your working selectors is a css selector");
+    expect(prompt).toContain("Write a css selector for each field whose value is visible on the page: title: string, price: number");
+    expect(prompt).not.toContain("Leave fields empty");
   });
 });
