@@ -58,7 +58,9 @@ export function collectSkeletonTree(): SkeletonNode | null {
 
     const describe = (element: Element): string => {
         const parts: string[] = [];
-        if (element.id && isStableClass(element.id)) parts.push(`#${element.id}`);
+        // On a <form> holding an <input name="id">, element.id returns that input, not the attribute.
+        const id = element.getAttribute("id");
+        if (id && isStableClass(id)) parts.push(`#${id}`);
         const classes = Array.from(element.classList).filter(isStableClass).slice(0, 4);
         if (classes.length) parts.push(`.${classes.join(".")}`);
         const attrs: string[] = [];
