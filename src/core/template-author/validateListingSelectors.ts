@@ -1,5 +1,5 @@
 import type { Page } from "playwright";
-import { cleanLinks, groupLinks, readDomLinks, type LinkItem } from "../extraction/links";
+import { groupLinks, readDomLinks, sameHostLinks, type LinkItem } from "../extraction/links";
 import type { ListingTemplate } from "../templating/types";
 
 export const MIN_ITEM_LINKS = 2;
@@ -111,8 +111,3 @@ function keepLinks(links: LinkItem[], urls: string[]): LinkItem[] {
     return links.filter(link => kept.has(link.url));
 }
 
-function sameHostLinks(urls: string[], pageUrl: string): string[] {
-    const [page] = cleanLinks([pageUrl], pageUrl);
-    const host = new URL(pageUrl).host;
-    return urls.filter(url => url !== page && new URL(url).host === host);
-}

@@ -62,6 +62,9 @@ const fixtureHtml = `
       <main>
         <h1 class="product-title">Clock</h1>
         <span class="price">€49.00</span>
+        <a href="https://shop.example/products/clock-2">Clock 2</a>
+        <a href="https://shop.example/products/clock-3">Clock 3</a>
+        <a href="https://shop.example/category/clocks">All clocks</a>
       </main>
     </body>
   </html>
@@ -85,6 +88,12 @@ async function buildPagePacket(page: Page): Promise<PagePacket> {
     tables,
   };
 }
+
+const productPattern = {
+  urlPattern: "/products/:slug",
+  sameTypeLinks: ["https://shop.example/products/clock-2"],
+  otherTypeLinks: ["https://shop.example/category/clocks"],
+};
 
 function scriptedProvider(answers: unknown[]) {
   const requests: StructuredLLMRequest[] = [];
@@ -147,6 +156,7 @@ describe("authorTemplate on a live page", () => {
             expectedSample: "49.00",
           },
         },
+        ...productPattern,
       },
       { fields: { title: { selectors: [css("h1.product-title")], expectedSample: "Clock" } } },
     ]);
@@ -166,6 +176,7 @@ describe("authorTemplate on a live page", () => {
     expect(repairPrompt).toContain('".nope"');
     expect(repairPrompt).toContain("Selector matched no elements");
     expect(Object.keys((requests[1]!.jsonSchema as { properties: { fields: { properties: object } } }).properties.fields.properties)).toEqual(["title"]);
+    expect(Object.keys((requests[1]!.jsonSchema as { properties: object }).properties)).toEqual(["fields"]);
 
     expect(authored.warnings).toEqual([]);
     expect(authored.template.urlPatterns).toEqual(["/products/:slug"]);
@@ -175,6 +186,66 @@ describe("authorTemplate on a live page", () => {
 
     const result = await extractWithTemplate({ page, pagePacket, template: authored.template });
     expect(result.payload).toEqual({ title: "Clock", price: 49 });
+  });
+
+  it("lists the page's same-site links and saves the pattern the agent repaired", async () => {
+    if (!page || !pagePacket) {
+      expect(browserLaunchError).toBeTruthy();
+      return;
+    }
+
+    const fields = {
+      title: { selectors: [css("h1.product-title")], expectedSample: "Clock" },
+      price: { selectors: [css("span.price")], expectedSample: "€49.00" },
+    };
+    const { provider, requests } = scriptedProvider([
+      { fields, ...productPattern, urlPattern: "/:a/:b" },
+      { fields: {}, ...productPattern },
+    ]);
+
+    const authored = await authorTemplate({ schema, page, pagePacket, skeleton: "body", provider });
+
+    const firstPrompt = requests[0]!.messages.find(message => message.role === "user")!.content;
+    expect(firstPrompt).toContain(
+      "Same-site links on this page:\nhttps://shop.example/products/clock-2\nhttps://shop.example/products/clock-3\nhttps://shop.example/category/clocks",
+    );
+    expect(requests).toHaveLength(2);
+    const repairPrompt = requests[1]!.messages.find(message => message.role === "user")!.content;
+    expect(repairPrompt).toContain(
+      'Your previous urlPattern "/:a/:b" failed a check: /:a/:b matches https://shop.example/category/clocks, which you listed as another page type',
+    );
+    expect(Object.keys((requests[1]!.jsonSchema as { properties: { fields: { properties: object } } }).properties.fields.properties)).toEqual([]);
+    expect(authored.warnings).toEqual([]);
+    expect(authored.template.urlPatterns).toEqual(["/products/:slug"]);
+    expect(firstPrompt).not.toContain("URL pattern: /products/:slug");
+  });
+
+  it("falls back to the heuristic pattern with a warning when only the pattern keeps failing", async () => {
+    if (!page || !pagePacket) {
+      expect(browserLaunchError).toBeTruthy();
+      return;
+    }
+
+    const invented = { ...productPattern, sameTypeLinks: ["https://shop.example/products/invented"] };
+    const { provider, requests } = scriptedProvider([
+      {
+        fields: {
+          title: { selectors: [css("h1.product-title")], expectedSample: "Clock" },
+          price: { selectors: [css("span.price")], expectedSample: "€49.00" },
+        },
+        ...invented,
+      },
+      { fields: {}, ...invented },
+    ]);
+
+    const authored = await authorTemplate({ schema, page, pagePacket, skeleton: "body", provider, maxRepairs: 2 });
+
+    expect(requests).toHaveLength(3);
+    expect(authored.template.urlPatterns).toEqual(["/products/:slug"]);
+    expect(authored.warnings).toEqual([
+      "No URL pattern from claude passed the checks after 2 repair round(s) (https://shop.example/products/invented is not in the list of links on this page); the template uses /products/:slug.",
+    ]);
+    expect(authored.template.fields.title!.selectors.map(selector => selector.selector)).toEqual(["h1.product-title"]);
   });
 
   it("saves an empty field with a warning when the agent never finds a working selector", async () => {
@@ -205,8 +276,12 @@ describe("authorTemplate on a live page", () => {
     expect(requests).toHaveLength(3);
     expect(authored.template.fields.title!.selectors).toEqual([]);
     expect(authored.template.fields.price!.selectors.map(selector => selector.selector)).toEqual(["span.price"]);
-    expect(authored.warnings).toHaveLength(1);
+    expect(authored.warnings).toHaveLength(2);
     expect(authored.warnings[0]).toContain('"title"');
+    expect(authored.warnings[1]).toBe(
+      "No URL pattern from claude passed the checks after 2 repair round(s) (no urlPattern was given); the template uses /products/:slug.",
+    );
+    expect(authored.template.urlPatterns).toEqual(["/products/:slug"]);
 
     const result = await extractWithTemplate({ page, pagePacket, template: authored.template });
     expect(result.payload).toEqual({ title: null, price: 49 });

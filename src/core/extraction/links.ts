@@ -117,6 +117,12 @@ export function cleanLinks(hrefs: string[], baseUrl: string): string[] {
     return [...seen];
 }
 
+export function sameHostLinks(urls: string[], pageUrl: string): string[] {
+    const [page] = cleanLinks([pageUrl], pageUrl);
+    const host = new URL(pageUrl).host;
+    return urls.filter(url => url !== page && new URL(url).host === host);
+}
+
 export function groupLinks(urls: string[], pageUrl: string): LinkGroup[] {
     const host = new URL(pageUrl).host;
     const groups = new Map<string, string[]>();
