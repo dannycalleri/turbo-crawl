@@ -7,6 +7,7 @@
 - [URL patterns](#url-patterns)
 - [User agent](#user-agent)
 - [robots.txt and policy signals](#robotstxt-and-policy-signals)
+- [Chromium](#chromium)
 - [Environment variables](#environment-variables)
 - [Library API](#library-api)
 - [How it works](#how-it-works)
@@ -20,7 +21,7 @@ npx @fragmentoid/turbo-crawl crawl <url> [options]
 
 After a global install (`npm install -g @fragmentoid/turbo-crawl`), you can type `turbo-crawl crawl <url> [options]`.
 
-turbo-crawl does not download Chromium. Before the first crawl, run `npx playwright install chromium`.
+When Chromium for Playwright is missing, turbo-crawl downloads it on the first run. Refer to [Chromium](#chromium).
 
 | Option | Description |
 | --- | --- |
@@ -184,6 +185,37 @@ Each result has a `policy` object with these values:
 
 turbo-crawl only reports the TDM signals. It does not obey them for you. You decide what to do with them.
 
+## Chromium
+
+turbo-crawl renders each page in Chromium for Playwright. When Chromium is missing, turbo-crawl downloads it one time and then continues:
+
+1. turbo-crawl writes "Chromium for Playwright is not installed. Downloading it (one time)…" to stderr.
+2. Playwright downloads the Chromium version that matches the installed `playwright` package. The download is about 165 MB.
+3. Playwright shows the progress on stderr. On a terminal, it shows a progress bar. In other cases, it writes one line for each 10%.
+4. turbo-crawl starts Chromium and continues the crawl.
+
+The progress never goes to stdout. Thus the JSON result on stdout stays valid.
+
+When the download fails, the crawl stops with an error. Run `npx playwright install --with-deps chromium`, then try again.
+
+### In CI
+
+CI also gets Chromium with this download. Two items need attention:
+
+- **Cache the download.** Without a cache, each CI run downloads Chromium again. Playwright keeps the browsers in `~/.cache/ms-playwright` on Linux, `~/Library/Caches/ms-playwright` on macOS and `%USERPROFILE%\AppData\Local\ms-playwright` on Windows. Cache this folder, with the `playwright` version in the cache key.
+- **Install the system libraries.** On Linux, Chromium needs some system libraries. The GitHub `ubuntu-latest` runners have most of them. On a minimal image, run `npx playwright install --with-deps chromium` before the crawl. This command needs root. You can also use the official Playwright Docker image. When the libraries are missing, the crawl stops with an error that gives this command.
+
+Example for GitHub Actions. The project lists `@fragmentoid/turbo-crawl` and `playwright` in `package.json`. Thus `package-lock.json` sets the `playwright` version, and the cache key changes when that version changes.
+
+```yaml
+- run: npm ci
+- uses: actions/cache@v4
+  with:
+    path: ~/.cache/ms-playwright
+    key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+- run: npx turbo-crawl crawl https://shop.example/products/clock --no-author --data-dir templates
+```
+
 ## Environment variables
 
 | Variable | Purpose |
@@ -198,12 +230,13 @@ turbo-crawl only reports the TDM signals. It does not obey them for you. You dec
 
 ## Library API
 
-Install the package and Chromium:
+Install the package:
 
 ```bash
 npm install @fragmentoid/turbo-crawl playwright
-npx playwright install chromium
 ```
+
+The library also downloads Chromium when it is missing. Refer to [Chromium](#chromium).
 
 ### `createCrawler(options)`
 
@@ -238,7 +271,7 @@ An error gives `{ ok: false, code, message, policy }`. The code is one of these:
 - `TIMEOUT`
 - `AMBIGUOUS_TEMPLATE`
 
-A call rejects only in these cases: an argument is not valid, Chromium is missing, or the agent fails when `authoring` is `"allowed"`.
+A call rejects only in these cases: an argument is not valid, Chromium cannot start, or the agent fails when `authoring` is `"allowed"`.
 
 ### `close()`
 

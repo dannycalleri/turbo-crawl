@@ -25,13 +25,9 @@ The first time turbo-crawl sees a page layout, it asks a coding agent you alread
 
 You need Node.js 20 or later, and one template author, installed and logged in: [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude`, the default) or the [Codex CLI](https://github.com/openai/codex) (`codex`). A local [LM Studio](https://lmstudio.ai) server works too, with `--provider lmstudio`. The agent is needed only where a template is written.
 
-Install Chromium for Playwright one time. turbo-crawl does not download it for you:
+Run turbo-crawl with `npx`. On the first run, it downloads Chromium for Playwright (about 165 MB, one time) and shows the progress.
 
-```sh
-npx playwright install chromium
-```
-
-Then run turbo-crawl with `npx`. Crawl a product page and name the fields you want:
+Crawl a product page and name the fields you want:
 
 ```console
 $ npx @fragmentoid/turbo-crawl crawl https://bookshop.example/catalogue/a-light-in-the-attic_1000/index.html \

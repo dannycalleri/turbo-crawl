@@ -12,6 +12,7 @@ Version 0.4 changes how turbo-crawl makes and uses URL patterns.
   - a URL that matches the item pattern of a saved listing.
 - **A template must have a CSS selector to fit.** When the fields of a template read only JSON-LD or meta tags, the template does not fit. One or more required fields must have a CSS selector that reads a value. The agent gives a CSS selector for each new template. When an old template stops fitting for this reason, author it again.
 - **Old template files load with merged patterns.** In some old templates, `urlPatterns` has one entry for each page. turbo-crawl now loads this list as a short list. It saves the short list when it next updates the file. Listing templates keep `itemUrlPatterns`, and they also keep `itemUrlPattern`. Thus version 0.3 can read them.
+- **turbo-crawl downloads Chromium.** When Chromium for Playwright is missing, turbo-crawl downloads it on the first run and shows the progress. You do not need to run `npx playwright install chromium` first.
 - **Duplicate templates.** An old template and a new template can both fit a page. The page then fails with `AMBIGUOUS_TEMPLATE`. To correct this, delete the older file in `data/<domain>/templates/`.
 
 ## From 0.1 to 0.2
