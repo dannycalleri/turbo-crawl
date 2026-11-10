@@ -9,6 +9,12 @@ describe("urlMatchesPattern", () => {
     expect(urlMatchesPattern("https://www.watches.example/omega/watches/omega-speedmaster--id50011122.htm", pattern)).toBe(false);
   });
 
+  it("keeps an underscore after a placeholder as literal text", () => {
+    expect(urlMatchesPattern("https://bookshop.example/catalogue/a-light-in-the-attic_1000", "/catalogue/:slug_:id")).toBe(true);
+    expect(urlMatchesPattern("https://bookshop.example/catalogue/top100", "/catalogue/:slug_:id")).toBe(false);
+    expect(urlMatchesPattern("https://site.com/p/abc", "/p/:product_slug")).toBe(true);
+  });
+
   it("matches only digits with :id", () => {
     expect(urlMatchesPattern("https://www.market.example/itm/123456789012", "/itm/:id")).toBe(true);
     expect(urlMatchesPattern("https://www.market.example/itm/rolex-submariner", "/itm/:id")).toBe(false);
