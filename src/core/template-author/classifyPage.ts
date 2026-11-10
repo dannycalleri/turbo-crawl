@@ -122,7 +122,10 @@ export async function classifyPage(input: ClassifyPageInput): Promise<PageClassi
         }
 
         if (passing.itemLinks) itemPattern = candidateItemPattern;
-        else patternFailures.itemUrlPattern = paginationFailure ?? itemPatternFailure ?? `no itemLinks selector gave ${MIN_ITEM_LINKS} or more links that match ${candidateItemPattern}`;
+        else patternFailures.itemUrlPattern = {
+            pattern: candidateItemPattern,
+            reason: paginationFailure ?? itemPatternFailure ?? `no itemLinks selector gave ${MIN_ITEM_LINKS} or more links that match ${candidateItemPattern}`,
+        };
 
         if (passing.itemLinks) {
             const itemUrls = passing.itemLinks[0]!.links.map(link => link.url);
@@ -130,7 +133,7 @@ export async function classifyPage(input: ClassifyPageInput): Promise<PageClassi
             if (pagePattern === null || check(pagePattern) !== null) {
                 const reason = check(answer.pageUrlPattern);
                 pagePattern = reason === null ? answer.pageUrlPattern : null;
-                if (reason !== null) patternFailures.pageUrlPattern = reason;
+                if (reason !== null) patternFailures.pageUrlPattern = { pattern: answer.pageUrlPattern, reason };
             }
         }
         calls.push({ round, messages, response: response.raw, validations });
@@ -139,7 +142,7 @@ export async function classifyPage(input: ClassifyPageInput): Promise<PageClassi
     }
 
     if (!passing.itemLinks || itemPattern === null) {
-        const reasons = [patternFailures.itemUrlPattern, ...(failures.itemLinks ?? []).map(failure => failure.reason)].filter(Boolean);
+        const reasons = [patternFailures.itemUrlPattern?.reason, ...(failures.itemLinks ?? []).map(failure => failure.reason)].filter(Boolean);
         throw new Error(`The agent said ${finalUrl} is a listing, but none of its item link selectors worked after ${maxRepairs} repair round(s): ${reasons.join("; ") || "no selectors were given"}. Run again with a higher --max-repairs, or crawl the item pages directly.`);
     }
 
@@ -148,7 +151,7 @@ export async function classifyPage(input: ClassifyPageInput): Promise<PageClassi
         ...Object.keys(failures).map(role =>
             `No working ${role} selector found after ${maxRepairs} repair round(s); the listing template has none.`),
         ...(pagePattern === null
-            ? [`No listing page pattern from ${provider.name} passed the checks after ${maxRepairs} repair round(s) (${patternFailures.pageUrlPattern ?? "no pageUrlPattern was given"}); the listing template uses ${listingPattern}.`]
+            ? [`No listing page pattern from ${provider.name} passed the checks after ${maxRepairs} repair round(s) (${patternFailures.pageUrlPattern?.reason ?? "no pageUrlPattern was given"}); the listing template uses ${listingPattern}.`]
             : []),
     ];
     const domain = normalizeDomain(finalUrl);
