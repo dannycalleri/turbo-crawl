@@ -20,7 +20,7 @@ function inferPathPartPattern(part: string): string {
 
     if (looksLikeSlug(basename)) return ":slug";
 
-    return part;
+    return part.replace(/:/g, "%3A");
 }
 
 function decodeSegment(part: string): string {

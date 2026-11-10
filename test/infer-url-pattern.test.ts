@@ -43,6 +43,10 @@ describe("inferUrlPattern", () => {
     expect(inferUrlPattern("https://example.com/static/jquery-3.6.0.min.js")).toBe("/static/jquery-3.6.0.min.js");
   });
 
+  it("encodes a colon in a literal segment, so it cannot read as a placeholder", () => {
+    expect(inferUrlPattern("https://wiki.example/wiki/Category:books")).toBe("/wiki/Category%3Abooks");
+  });
+
   it("decodes percent-encoded segments before it classifies them", () => {
     expect(inferUrlPattern("https://example.com/montres/montre-%C3%A9l%C3%A9gante")).toBe("/montres/:slug");
   });
