@@ -3,7 +3,7 @@ import {
     extractNumberTokens,
     normalizeValue,
 } from "../llm-extractor/validation/normalizeValue";
-import type { FieldTemplate } from "../templating/types";
+import type { FieldTemplate, SelectorCandidate } from "../templating/types";
 import type { PagePacket } from "../types";
 import type {
     CandidateExtraction,
@@ -20,7 +20,7 @@ export async function extractFieldWithTemplate(input: {
     const warnings: string[] = [];
     const baseUrl = input.pagePacket.finalUrl || input.pagePacket.url;
 
-    for (const selector of input.field.selectors) {
+    const tryCandidate = async (selector: SelectorCandidate): Promise<CandidateExtraction> => {
         const readResult = await readSelectorValue({
             page: input.page,
             pagePacket: input.pagePacket,
@@ -40,38 +40,37 @@ export async function extractFieldWithTemplate(input: {
             baseUrl,
         });
         const valid = normalizedValue !== null;
-        const candidateWarnings = valid
-            ? readResult.warnings
-            : [
-                ...readResult.warnings,
-                `Selector did not produce a valid ${input.field.type} value.`,
-            ];
-
-        const candidate: CandidateExtraction = {
+        return {
             selector,
             rawValue: readResult.rawValue,
             normalizedValue,
             valid,
             confidence: selector.score,
-            warnings: candidateWarnings,
+            warnings: valid
+                ? readResult.warnings
+                : [...readResult.warnings, `Selector did not produce a valid ${input.field.type} value.`],
         };
+    };
 
+    for (const [index, selector] of input.field.selectors.entries()) {
+        const candidate = await tryCandidate(selector);
         candidatesTried.push(candidate);
 
-        if (valid) {
+        if (candidate.valid) {
             return {
                 fieldName: input.field.fieldName,
                 type: input.field.type,
                 rawValue: candidate.rawValue,
                 normalizedValue: candidate.normalizedValue,
                 selectorUsed: selector,
+                bodyMatched: selector.kind === "css" || await anyCssSelectorReads(input.field.selectors.slice(index + 1), tryCandidate),
                 confidence: candidate.confidence,
                 warnings: candidate.warnings,
                 candidatesTried,
             };
         }
 
-        warnings.push(...candidateWarnings);
+        warnings.push(...candidate.warnings);
     }
 
     const uniqueWarnings = dedupeWarnings(warnings);
@@ -82,6 +81,7 @@ export async function extractFieldWithTemplate(input: {
         rawValue: null,
         normalizedValue: null,
         selectorUsed: null,
+        bodyMatched: false,
         confidence: 0,
         warnings:
             uniqueWarnings.length > 0
@@ -89,6 +89,16 @@ export async function extractFieldWithTemplate(input: {
                 : [`No selectors available for field: ${input.field.fieldName}`],
         candidatesTried,
     };
+}
+
+async function anyCssSelectorReads(
+    selectors: SelectorCandidate[],
+    tryCandidate: (selector: SelectorCandidate) => Promise<CandidateExtraction>,
+): Promise<boolean> {
+    for (const selector of selectors) {
+        if (selector.kind === "css" && (await tryCandidate(selector)).valid) return true;
+    }
+    return false;
 }
 
 function selectLearnedNumberValue(input: {
