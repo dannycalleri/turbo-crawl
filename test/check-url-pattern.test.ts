@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { checkUrlPattern } from "../src/core/template-author/checkUrlPattern.ts";
+import { checkItemUrlPattern, checkPageUrlPattern, checkUrlPattern } from "../src/core/template-author/checkUrlPattern.ts";
 
 const pageUrl = "https://www.watches.example/rolex/rolex-submariner-no-date--id49535507.htm";
 const links = [
@@ -40,5 +40,25 @@ describe("checkUrlPattern", () => {
   it("rejects a pattern that is too wide for its other-type examples", () => {
     expect(checkUrlPattern({ urlPattern: "/:a/:b", sameTypeLinks, otherTypeLinks }, pageUrl, links))
       .toContain("which you listed as another page type");
+  });
+});
+
+describe("listing pattern checks", () => {
+  const searchUrl = "https://www.watches.example/search/index.htm?query=submariner";
+  const items = sameTypeLinks;
+
+  it("accepts an item pattern that the listing page does not match", () => {
+    expect(checkItemUrlPattern("/:brand/:slug--id:id.htm", searchUrl)).toBeNull();
+    expect(checkItemUrlPattern("", searchUrl)).toBe("no itemUrlPattern was given");
+    expect(checkItemUrlPattern("/:a/:b", "https://www.watches.example/rolex/index.htm")).toContain("cannot be the pattern of the item pages");
+  });
+
+  it("accepts a page pattern that matches the page and its pagination, and no item", () => {
+    const next = "https://www.watches.example/search/index.htm?query=submariner&showpage=2";
+    expect(checkPageUrlPattern("/search/index.htm?query=:q", searchUrl, [next], items)).toBeNull();
+    expect(checkPageUrlPattern("/search/index.htm?query=:q&showpage=:page", searchUrl, [next], items)).toContain("does not match");
+    expect(checkPageUrlPattern("/search/index.htm", searchUrl, ["https://www.watches.example/search/page2.htm"], items))
+      .toContain("does not match the pagination link(s)");
+    expect(checkPageUrlPattern("/:a/:b", "https://www.watches.example/rolex/index.htm", [], items)).toContain("matches the item link(s)");
   });
 });

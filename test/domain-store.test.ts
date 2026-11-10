@@ -328,6 +328,34 @@ describe("domain store foundational helpers", () => {
     expect((await readJsonFile<ExtractionTemplate>(templatePath)).urlPatterns).toEqual(["/:slug/:slug", "/search/watches/index.htm"]);
   });
 
+  it("loads a 0.3.0 listing file with only itemUrlPattern, and writes both fields on save", async () => {
+    const rootPath = await createTempDir();
+    const store = createDomainStore({ targetUrl: "https://marketplace.example/category/clocks", rootPath });
+    const listing: ListingTemplate = {
+      id: "listing_0123456789abcdef",
+      kind: "listing",
+      domain: "marketplace.example",
+      urlPatterns: ["/category/:slug"],
+      itemLinks: ["ul.grid a"],
+      nextPage: [],
+      pageLinks: [],
+      itemUrlPatterns: ["/products/:slug", "/p/:id"],
+      createdFromUrl: "https://marketplace.example/category/clocks",
+      createdAt: "2026-11-05T00:00:00.000Z",
+    };
+    const { itemUrlPatterns: _patterns, ...old } = listing;
+    await writeJsonFile(path.join(store.listingsPath, "old.json"), { ...old, itemUrlPattern: "/products/:slug" });
+
+    const [loaded] = (await listListingTemplates(store)).candidates;
+    expect(loaded?.template).toEqual({ ...listing, itemUrlPatterns: ["/products/:slug"] });
+
+    const saved = await saveListingTemplate(store, listing);
+    expect(await readJsonFile<Record<string, unknown>>(saved.path)).toMatchObject({
+      itemUrlPatterns: ["/products/:slug", "/p/:id"],
+      itemUrlPattern: "/products/:slug",
+    });
+  });
+
   it("loads the urlPatterns of a listing template merged", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({ targetUrl: "https://marketplace.example/products/example", rootPath });
@@ -339,7 +367,7 @@ describe("domain store foundational helpers", () => {
       itemLinks: ["ul.grid a"],
       nextPage: [],
       pageLinks: [],
-      itemUrlPattern: "/products/:slug",
+      itemUrlPatterns: ["/products/:slug"],
       createdFromUrl: "https://marketplace.example/category/men",
       createdAt: "2026-11-05T00:00:00.000Z",
     });
@@ -371,7 +399,7 @@ describe("domain store foundational helpers", () => {
       itemLinks: ["ul.grid a"],
       nextPage: [],
       pageLinks: [],
-      itemUrlPattern: "/products/:slug",
+      itemUrlPatterns: ["/products/:slug"],
       createdFromUrl: "https://marketplace.example/category/clocks",
       createdAt: "2026-11-05T00:00:00.000Z",
     };

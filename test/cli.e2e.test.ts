@@ -76,7 +76,14 @@ const claudeEnvelope = {
 
 const classifyEnvelope = {
   ...claudeEnvelope,
-  structured_output: { pageKind: "listing", itemLinks: ["ul.grid a.card-link"], nextPage: ["a[rel=next]"], pageLinks: [] },
+  structured_output: {
+    pageKind: "listing",
+    itemLinks: ["ul.grid a.card-link"],
+    nextPage: ["a[rel=next]"],
+    pageLinks: [],
+    pageUrlPattern: "/category/:slug",
+    itemUrlPattern: "/products/:slug",
+  },
 };
 
 type RunResult = { code: number | null; stdout: string; stderr: string };

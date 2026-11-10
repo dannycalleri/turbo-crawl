@@ -17,6 +17,17 @@ const html = `<!doctype html><html><body>
   <aside>${posts.join("")}</aside>
 </body></html>`;
 
+const patterns = { pageUrlPattern: "/category/:slug", itemUrlPattern: "/products/:slug" };
+
+const packet = (url: string) => ({
+  url,
+  finalUrl: url,
+  title: "Listing",
+  metadata: { canonicalUrl: null, description: null, robots: null, openGraph: {}, twitter: {}, other: {} },
+  jsonLd: [],
+  tables: [],
+}) as unknown as PagePacket;
+
 function fakeProvider(answers: unknown[]) {
   const requests: StructuredLLMRequest[] = [];
   const provider: LLMProvider = {
@@ -65,8 +76,8 @@ describe("listing links on a real browser", () => {
 
   it("asks the agent again for a failed item selector and keeps the repaired one", async () => {
     const { provider, requests } = fakeProvider([
-      { pageKind: "listing", itemLinks: [".no-such-card a"], nextPage: ["a[rel=next]"], pageLinks: [] },
-      { pageKind: "listing", itemLinks: ["ul.grid a.card-link"], nextPage: [], pageLinks: [] },
+      { pageKind: "listing", itemLinks: [".no-such-card a"], nextPage: ["a[rel=next]"], pageLinks: [], ...patterns },
+      { pageKind: "listing", itemLinks: ["ul.grid a.card-link"], nextPage: [], pageLinks: [], ...patterns },
     ]);
 
     const result = await classifyPage({
@@ -88,7 +99,12 @@ describe("listing links on a real browser", () => {
     expect(requests[1]!.messages.at(-1)!.content).toContain(".no-such-card a");
     expect(result).toMatchObject({
       kind: "listing",
-      template: { itemLinks: ["ul.grid a.card-link"], nextPage: ["a[rel=next]"], itemUrlPattern: "/products/:slug" },
+      template: {
+        itemLinks: ["ul.grid a.card-link"],
+        nextPage: ["a[rel=next]"],
+        urlPatterns: ["/category/:slug"],
+        itemUrlPatterns: ["/products/:slug"],
+      },
       paginationUrls: ["https://shop.test/category/clocks?page=2"],
     });
     expect(result.kind === "listing" && result.items).toHaveLength(24);
@@ -96,7 +112,7 @@ describe("listing links on a real browser", () => {
 
   it("keeps a pagination selector that matches no link on this page, and reads with the first one that finds links", async () => {
     const { provider, requests } = fakeProvider([
-      { pageKind: "listing", itemLinks: ["ul.grid a.card-link"], nextPage: ["li.next a"], pageLinks: [] },
+      { pageKind: "listing", itemLinks: ["ul.grid a.card-link"], nextPage: ["li.next a"], pageLinks: [], ...patterns },
     ]);
 
     const result = await classifyPage({
@@ -126,8 +142,8 @@ describe("listing links on a real browser", () => {
 
   it("repairs a pagination selector that matches elements without an href", async () => {
     const { provider, requests } = fakeProvider([
-      { pageKind: "listing", itemLinks: ["ul.grid a.card-link"], nextPage: ["ul.grid li"], pageLinks: [] },
-      { pageKind: "listing", itemLinks: [], nextPage: ["a[rel=next]"], pageLinks: [] },
+      { pageKind: "listing", itemLinks: ["ul.grid a.card-link"], nextPage: ["ul.grid li"], pageLinks: [], ...patterns },
+      { pageKind: "listing", itemLinks: [], nextPage: ["a[rel=next]"], pageLinks: [], ...patterns },
     ]);
 
     const result = await classifyPage({
@@ -148,5 +164,127 @@ describe("listing links on a real browser", () => {
     expect(requests).toHaveLength(2);
     expect(requests[1]!.messages.at(-1)!.content).toContain("none is a link with an href");
     expect(result).toMatchObject({ kind: "listing", template: { nextPage: ["a[rel=next]"] } });
+  });
+
+  it("keeps only the links that match the item pattern", async () => {
+    const { provider } = fakeProvider([{ pageKind: "listing", itemLinks: ["main a"], nextPage: ["a[rel=next]"], pageLinks: [], ...patterns }]);
+
+    const result = await classifyPage({ page, pagePacket: packet(pageUrl), skeleton: "", groups: [], provider });
+
+    expect(result.kind === "listing" && result.items.map(item => item.url)).toEqual(
+      Array.from({ length: 24 }, (_, i) => `https://shop.test/products/clock-${i + 1}`),
+    );
+  });
+
+  it("repairs a page pattern that matches the item links", async () => {
+    const { provider, requests } = fakeProvider([
+      { pageKind: "listing", itemLinks: ["ul.grid a.card-link"], nextPage: ["a[rel=next]"], pageLinks: [], ...patterns, pageUrlPattern: "/:a/:b" },
+      { pageKind: "listing", itemLinks: [], nextPage: [], pageLinks: [], ...patterns },
+    ]);
+
+    const result = await classifyPage({ page, pagePacket: packet(pageUrl), skeleton: "", groups: [], provider });
+
+    expect(requests).toHaveLength(2);
+    const repair = requests[1]!.messages.at(-1)!.content;
+    expect(repair).toContain("Your previous selectors worked");
+    expect(repair).toContain('Your previous pageUrlPattern "/:a/:b" failed a check: /:a/:b matches the item link(s) https://shop.test/products/clock-1');
+    expect(result).toMatchObject({ kind: "listing", warnings: [], template: { urlPatterns: ["/category/:slug"], nextPage: ["a[rel=next]"] } });
+  });
+
+  it("falls back to the per-URL pattern with a warning when the page pattern never passes", async () => {
+    const { provider, requests } = fakeProvider([
+      { pageKind: "listing", itemLinks: ["ul.grid a.card-link"], nextPage: [], pageLinks: [], ...patterns, pageUrlPattern: "/:a/:b" },
+    ]);
+
+    const result = await classifyPage({ page, pagePacket: packet(pageUrl), skeleton: "", groups: [], provider, maxRepairs: 1 });
+
+    expect(requests).toHaveLength(2);
+    expect(result).toMatchObject({
+      kind: "listing",
+      template: { urlPatterns: ["/category/clocks"], itemUrlPatterns: ["/products/:slug"] },
+      warnings: [expect.stringContaining("No listing page pattern from claude passed the checks after 1 repair round(s) (/:a/:b matches the item link(s)")],
+    });
+  });
+
+  it("reads a search page whose items are under several brands", async () => {
+    const searchUrl = "https://www.watches.test/search/index.htm?query=submariner";
+    const brands = ["rolex", "omega", "tudor"];
+    const watches = Array.from({ length: 30 }, (_, i) => `/${brands[i % 3]}/${brands[i % 3]}-model-${i}--id${50000000 + i}.htm`);
+    const searchPage = await browser.newPage();
+    await installPageContextHelpers(searchPage);
+    await searchPage.route("https://www.watches.test/**", route => route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><html><body><main><div class="results">${watches.map(href => `<a class="result" href="${href}">Watch</a>`).join("")}</div>
+        <a class="next" href="/search/index.htm?query=submariner&showpage=2">Next</a></main>
+        <footer>${brands.map(brand => `<a href="/${brand}/index.htm">${brand}</a>`).join("")}</footer></body></html>`,
+    }));
+    await searchPage.goto(searchUrl);
+    const { provider } = fakeProvider([{
+      pageKind: "listing",
+      itemLinks: ["div.results a.result"],
+      nextPage: ["a.next"],
+      pageLinks: [],
+      pageUrlPattern: "/search/index.htm?query=:q",
+      itemUrlPattern: "/:brand/:slug--id:id.htm",
+    }]);
+
+    const result = await classifyPage({ page: searchPage, pagePacket: packet(searchUrl), skeleton: "", groups: [], provider });
+    await searchPage.close();
+
+    expect(result).toMatchObject({
+      kind: "listing",
+      warnings: [],
+      template: { urlPatterns: ["/search/index.htm?query=:q"], itemUrlPatterns: ["/:brand/:slug--id:id.htm"] },
+      paginationUrls: ["https://www.watches.test/search/index.htm?query=submariner&showpage=2"],
+    });
+    expect(result.kind === "listing" && result.items).toHaveLength(30);
+  });
+
+  it("repairs an item pattern that the listing page matches, and keeps the repaired pattern and selectors", async () => {
+    const { provider, requests } = fakeProvider([
+      { pageKind: "listing", itemLinks: ["ul.grid a.card-link"], nextPage: ["a[rel=next]"], pageLinks: [], ...patterns, itemUrlPattern: "/:a/:b" },
+      { pageKind: "listing", itemLinks: ["ul.grid a.card-link"], nextPage: [], pageLinks: [], ...patterns },
+    ]);
+
+    const result = await classifyPage({ page, pagePacket: packet(pageUrl), skeleton: "", groups: [], provider });
+
+    expect(requests).toHaveLength(2);
+    expect(requests[1]!.messages.at(-1)!.content).toContain('Your previous itemUrlPattern "/:a/:b" failed a check: the listing page');
+    expect(result).toMatchObject({
+      kind: "listing",
+      warnings: [],
+      template: { itemLinks: ["ul.grid a.card-link"], itemUrlPatterns: ["/products/:slug"], nextPage: ["a[rel=next]"] },
+    });
+  });
+
+  it("repairs a valid item pattern that matches none of the item links", async () => {
+    const { provider, requests } = fakeProvider([
+      { pageKind: "listing", itemLinks: ["ul.grid a.card-link"], nextPage: [], pageLinks: [], ...patterns, itemUrlPattern: "/product/:slug" },
+      { pageKind: "listing", itemLinks: ["ul.grid a.card-link"], nextPage: [], pageLinks: [], ...patterns },
+    ]);
+
+    const result = await classifyPage({ page, pagePacket: packet(pageUrl), skeleton: "", groups: [], provider });
+
+    expect(requests).toHaveLength(2);
+    expect(requests[1]!.messages.at(-1)!.content).toContain(
+      'Your previous itemUrlPattern "/product/:slug" failed a check: no itemLinks selector gave 2 or more links that match /product/:slug',
+    );
+    expect(result).toMatchObject({ kind: "listing", template: { itemUrlPatterns: ["/products/:slug"] } });
+  });
+
+  it("checks the page pattern again when a pagination selector passes in a later round", async () => {
+    const { provider, requests } = fakeProvider([
+      { pageKind: "listing", itemLinks: ["ul.grid a.card-link"], nextPage: [], pageLinks: ["ul.grid li"], ...patterns },
+      { pageKind: "listing", itemLinks: [], nextPage: [], pageLinks: ["aside a"], ...patterns },
+    ]);
+
+    const result = await classifyPage({ page, pagePacket: packet(pageUrl), skeleton: "", groups: [], provider, maxRepairs: 1 });
+
+    expect(requests).toHaveLength(2);
+    expect(result).toMatchObject({
+      kind: "listing",
+      template: { urlPatterns: ["/category/clocks"], pageLinks: ["aside a"] },
+      warnings: [expect.stringContaining("/category/:slug does not match the pagination link(s) https://shop.test/blog/post-1")],
+    });
   });
 });

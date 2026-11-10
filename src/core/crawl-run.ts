@@ -211,7 +211,7 @@ export async function startCrawl(
     const [domainListings, domainTemplates] = await Promise.all([deps.listListingTemplates(store), deps.listTemplatesForDomain(store)]);
     const storedPatterns = [
       ...domainTemplates.candidates.flatMap(candidate => candidate.template.urlPatterns),
-      ...domainListings.candidates.flatMap(candidate => [...candidate.template.urlPatterns, candidate.template.itemUrlPattern]),
+      ...domainListings.candidates.flatMap(candidate => [...candidate.template.urlPatterns, ...candidate.template.itemUrlPatterns]),
     ];
     const savedListings = { candidates: input.expect === "detail" ? [] : domainListings.candidates };
     const saved = {
@@ -240,7 +240,7 @@ export async function startCrawl(
         ...facts,
         kind: "listing",
         ...links,
-        itemUrlPatterns: [candidate.template.itemUrlPattern],
+        itemUrlPatterns: candidate.template.itemUrlPatterns,
         linkGroups: await deps.summarizeLinkGroups(page),
         llmUsed: false,
         provider: null,
@@ -365,7 +365,7 @@ export async function startCrawl(
         urlPattern: classification.template.urlPatterns[0]!,
         kind: "listing",
         items: classification.items,
-        itemUrlPatterns: [classification.template.itemUrlPattern],
+        itemUrlPatterns: classification.template.itemUrlPatterns,
         paginationUrls: classification.paginationUrls,
         linkGroups: groups,
         llmUsed: true,

@@ -1,15 +1,15 @@
 import type { Page } from "playwright";
-import { groupLinks, readDomLinks, sameHostLinks, type LinkItem } from "../extraction/links";
+import { readDomLinks, sameHostLinks, type LinkItem } from "../extraction/links";
+import { urlMatchesPattern } from "../templating/urlPatterns";
 import type { ListingTemplate } from "../templating/types";
 
 export const MIN_ITEM_LINKS = 2;
-export const MIN_ITEM_PATTERN_SHARE = 0.8;
 
 export const LINK_ROLES = ["itemLinks", "nextPage", "pageLinks"] as const;
 export type LinkRole = typeof LINK_ROLES[number];
 
 export type ItemLinksFit =
-    | { fits: true; itemUrls: string[]; itemUrlPattern: string }
+    | { fits: true; itemUrls: string[] }
     | { fits: false; reason: string };
 
 export type LinkSelectorValidation = {
@@ -17,8 +17,6 @@ export type LinkSelectorValidation = {
     passed: boolean;
     links: LinkItem[];
     reason: string;
-    /** Set on a passing itemLinks selector. */
-    itemUrlPattern?: string;
 };
 
 export type ListingLinks = {
@@ -26,39 +24,35 @@ export type ListingLinks = {
     paginationUrls: string[];
 };
 
-export function itemLinksFit(urls: string[], pageUrl: string): ItemLinksFit {
-    const itemUrls = sameHostLinks(urls, pageUrl);
+export function itemLinksFit(urls: string[], pageUrl: string, itemUrlPatterns: string[]): ItemLinksFit {
+    const sameHost = sameHostLinks(urls, pageUrl);
+    const itemUrls = sameHost.filter(url => itemUrlPatterns.some(pattern => urlMatchesPattern(url, pattern)));
     if (itemUrls.length < MIN_ITEM_LINKS) {
-        return { fits: false, reason: `read ${itemUrls.length} link(s) on this host; a listing needs at least ${MIN_ITEM_LINKS}` };
-    }
-
-    const [largest] = groupLinks(itemUrls, pageUrl);
-    if (largest!.count / itemUrls.length < MIN_ITEM_PATTERN_SHARE) {
         return {
             fits: false,
-            reason: `the links do not share one URL pattern (${largest!.urlPattern} covers ${largest!.count} of ${itemUrls.length}); select only the item links`,
+            reason: `${itemUrls.length} of ${sameHost.length} link(s) on this host match ${itemUrlPatterns.join(" or ") || "no item pattern"}; a listing needs at least ${MIN_ITEM_LINKS}`,
         };
     }
-
-    return { fits: true, itemUrls, itemUrlPattern: largest!.urlPattern };
+    return { fits: true, itemUrls };
 }
 
 export async function validateLinkSelectors(
     page: Page,
     role: LinkRole,
     selectors: string[],
+    itemUrlPatterns: string[],
 ): Promise<LinkSelectorValidation[]> {
     const results: LinkSelectorValidation[] = [];
-    for (const selector of selectors) results.push(await validateLinkSelector(page, role, selector));
+    for (const selector of selectors) results.push(await validateLinkSelector(page, role, selector, itemUrlPatterns));
     return results;
 }
 
 export async function readListingLinks(page: Page, template: ListingTemplate): Promise<ListingLinks | null> {
-    const items = await firstPassing(page, "itemLinks", template.itemLinks);
+    const items = await firstPassing(page, "itemLinks", template.itemLinks, template.itemUrlPatterns);
     if (!items) return null;
 
-    const next = await firstPassing(page, "nextPage", template.nextPage);
-    const pages = await firstPassing(page, "pageLinks", template.pageLinks);
+    const next = await firstPassing(page, "nextPage", template.nextPage, template.itemUrlPatterns);
+    const pages = await firstPassing(page, "pageLinks", template.pageLinks, template.itemUrlPatterns);
 
     return {
         items: items.links,
@@ -66,15 +60,15 @@ export async function readListingLinks(page: Page, template: ListingTemplate): P
     };
 }
 
-async function firstPassing(page: Page, role: LinkRole, selectors: string[]): Promise<LinkSelectorValidation | null> {
+async function firstPassing(page: Page, role: LinkRole, selectors: string[], itemUrlPatterns: string[]): Promise<LinkSelectorValidation | null> {
     for (const selector of selectors) {
-        const result = await validateLinkSelector(page, role, selector);
+        const result = await validateLinkSelector(page, role, selector, itemUrlPatterns);
         if (result.passed && result.links.length > 0) return result;
     }
     return null;
 }
 
-async function validateLinkSelector(page: Page, role: LinkRole, selector: string): Promise<LinkSelectorValidation> {
+async function validateLinkSelector(page: Page, role: LinkRole, selector: string, itemUrlPatterns: string[]): Promise<LinkSelectorValidation> {
     let links: LinkItem[];
     try {
         links = await readDomLinks(page, selector);
@@ -86,9 +80,9 @@ async function validateLinkSelector(page: Page, role: LinkRole, selector: string
     const pageUrl = page.url();
     const urls = links.map(link => link.url);
     if (role === "itemLinks") {
-        const fit = itemLinksFit(urls, pageUrl);
+        const fit = itemLinksFit(urls, pageUrl, itemUrlPatterns);
         return fit.fits
-            ? { selector, passed: true, links: keepLinks(links, fit.itemUrls), reason: "ok", itemUrlPattern: fit.itemUrlPattern }
+            ? { selector, passed: true, links: keepLinks(links, fit.itemUrls), reason: "ok" }
             : { selector, passed: false, links, reason: fit.reason };
     }
 
