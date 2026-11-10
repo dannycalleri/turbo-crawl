@@ -52,16 +52,19 @@ export async function extractFieldWithTemplate(input: {
         };
     };
 
+    const laterCssReads = async (later: SelectorCandidate[]): Promise<boolean> => {
+        for (const selector of later) {
+            if (selector.kind === "css" && (await tryCandidate(selector)).valid) return true;
+        }
+        return false;
+    };
+
     for (const [index, selector] of input.field.selectors.entries()) {
         const candidate = await tryCandidate(selector);
         candidatesTried.push(candidate);
 
         if (candidate.valid) {
-            let bodyMatched = selector.kind === "css";
-            for (const later of input.field.selectors.slice(index + 1)) {
-                if (bodyMatched) break;
-                bodyMatched = later.kind === "css" && (await tryCandidate(later)).valid;
-            }
+            const bodyMatched = selector.kind === "css" || await laterCssReads(input.field.selectors.slice(index + 1));
             return {
                 fieldName: input.field.fieldName,
                 type: input.field.type,
