@@ -1,3 +1,4 @@
+import { isMissingExecutableError } from "./browserInstall.ts";
 import { createBrowserSession } from "./crawler.ts";
 import {
   createCrawlRunner,
@@ -209,7 +210,10 @@ function isMissingBrowserError(error: unknown): boolean {
 export function describeRuntimeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
 
-  if (isMissingBrowserError(error)) {
+  if (/Host system is missing dependencies/i.test(message)) {
+    return "Chromium cannot start because system libraries are missing. Run `npx playwright install --with-deps chromium` and try again.";
+  }
+  if (isMissingExecutableError(error)) {
     return "Chromium for Playwright is not installed. Run `npx playwright install chromium` and try again.";
   }
 

@@ -334,6 +334,17 @@ describe("runHeadlessCrawl", () => {
     expect(h.stderr).toContain("npx playwright install chromium");
   });
 
+  it("names the --with-deps fix when Chromium cannot start for missing system libraries", async () => {
+    const h = harness({
+      startCrawl: async () => {
+        throw new Error("browserType.launch: Host system is missing dependencies to run browsers.");
+      },
+    });
+
+    expect(await runHeadlessCrawl({ target, fields: "title:string" }, h.deps)).toBe(EXIT_RUNTIME);
+    expect(h.stderr).toContain("npx playwright install --with-deps chromium");
+  });
+
   it("prints the data, per-field details and llmUsed as JSON", async () => {
     const h = harness();
 

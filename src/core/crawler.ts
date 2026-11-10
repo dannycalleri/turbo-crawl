@@ -1,4 +1,5 @@
-import { chromium, type Browser, type Page, type Response } from "playwright";
+import type { Browser, Page, Response } from "playwright";
+import { launchChromium } from "./browserInstall.ts";
 import { extractMetadata } from "./extraction/metadata";
 import { extractJsonLd } from "./extraction/jsonld";
 import { extractDomBlocks } from "./extraction/dom";
@@ -33,7 +34,7 @@ export type RenderedPageContext = {
 
 const defaultCrawlerDependencies: CrawlerDependencies = {
   now: () => new Date(),
-  launchBrowser: () => chromium.launch({ headless: true }),
+  launchBrowser: () => launchChromium(),
   installPageContextHelpers,
   dismissCookieBanner,
   extractMetadata,
