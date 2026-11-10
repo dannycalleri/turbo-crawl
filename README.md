@@ -5,9 +5,9 @@ Turn any web page into structured JSON without writing selectors.
 The first time turbo-crawl sees a page layout, it asks a coding agent you already use (**Claude Code** or **Codex**) to read the page's structure and write an extraction template: CSS, JSON-LD, meta or table selectors for each field. Every selector is checked on the live page, and any that fail go back to the agent to fix. After that, every page with the same layout is scraped with the saved template, whatever its URL, with **no model call**: it's fast, free and deterministic.
 
 ```console
-$ npx @fragmentoid/turbo-crawl crawl https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html \
+$ npx @fragmentoid/turbo-crawl crawl https://bookshop.example/catalogue/a-light-in-the-attic_1000/index.html \
     --fields title:string,price:number,availability:string,upc:string
-Rendering https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html…
+Rendering https://bookshop.example/catalogue/a-light-in-the-attic_1000/index.html…
 Using claude to write the template.
 Asking claude to write selectors for 4 fields…
 {
@@ -25,9 +25,9 @@ Asking claude to write selectors for 4 fields…
   ...
 }
 
-$ npx @fragmentoid/turbo-crawl crawl https://books.toscrape.com/catalogue/sapiens-a-brief-history-of-humankind_996/index.html
-Rendering https://books.toscrape.com/catalogue/sapiens-a-brief-history-of-humankind_996/index.html…
-Extracted with the saved template data/books.toscrape.com/templates/dc69babc39c9291d.json.
+$ npx @fragmentoid/turbo-crawl crawl https://bookshop.example/catalogue/sapiens-a-brief-history-of-humankind_996/index.html
+Rendering https://bookshop.example/catalogue/sapiens-a-brief-history-of-humankind_996/index.html…
+Extracted with the saved template data/bookshop.example/templates/dc69babc39c9291d.json.
 {
   "ok": true,
   "kind": "item",
@@ -100,13 +100,13 @@ The URL pattern is still a hint. When a template that knows the page's URL patte
 Point turbo-crawl at a category, archive or search page and it extracts every item, following the pagination, up to `--max-items`:
 
 ```console
-$ turbo-crawl crawl https://books.toscrape.com/catalogue/category/books/mystery_3/index.html \
+$ turbo-crawl crawl https://bookshop.example/catalogue/category/books/mystery_3/index.html \
     --fields title:string,price:number --max-items 25 > books.ndjson
 …
 Crawled 2 listing page(s): 25 item(s) extracted, 0 failed.
 
 $ head -1 books.ndjson
-{"ok":true,"kind":"item","url":"https://books.toscrape.com/catalogue/sharp-objects_997/index.html","data":{"title":"Sharp Objects","price":47.82},...}
+{"ok":true,"kind":"item","url":"https://bookshop.example/catalogue/sharp-objects_997/index.html","data":{"title":"Sharp Objects","price":47.82},...}
 ```
 
 - **Recognizing a listing.** When no saved template fits a page and the page links to at least 4 pages that share one URL shape other than its own, turbo-crawl asks the agent if the page is a listing. For a listing, the agent writes link selectors for the items, the next page and the numbered pages. They are checked on the live page and saved as a listing template in `data/<domain>/listings/`. Later listing pages with the same layout, on this or other categories, are read with no agent call.

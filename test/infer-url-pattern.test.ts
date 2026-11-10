@@ -5,7 +5,7 @@ describe("inferUrlPattern", () => {
   it("keeps stable category path segments and replaces hyphenated product slugs", () => {
     expect(
       inferUrlPattern(
-        "https://www.orologeriamajer.it/it/orologi/automatici/tissot-visodate-39mm-t1574071104100.php",
+        "https://www.watchshop.example/it/orologi/automatici/tissot-visodate-39mm-t1574071104100.php",
       ),
     ).toBe("/it/orologi/automatici/:slug");
   });
@@ -26,7 +26,7 @@ describe("inferUrlPattern", () => {
 
   it("treats underscore-joined segments with an id as slugs", () => {
     expect(
-      inferUrlPattern("https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html"),
+      inferUrlPattern("https://bookshop.example/catalogue/a-light-in-the-attic_1000/index.html"),
     ).toBe("/catalogue/:slug/index.html");
     expect(inferUrlPattern("https://example.com/books/sapiens_996")).toBe("/books/:slug");
     expect(inferUrlPattern("https://example.com/my_account")).toBe("/my_account");

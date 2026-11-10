@@ -107,12 +107,12 @@ export function createCrawlCommand(
         })
         .strictOptions()
         .example(
-          "$0 crawl https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html --fields title:string,price:number",
+          "$0 crawl https://bookshop.example/catalogue/a-light-in-the-attic_1000/index.html --fields title:string,price:number",
           "Write a template with your coding agent and print the extracted JSON.",
         )
         .example("$0 crawl https://example.com", "Let the agent suggest the fields.")
         .example(
-          "$0 crawl https://books.toscrape.com/catalogue/category/books/travel_2/index.html --fields title:string,price:number",
+          "$0 crawl https://bookshop.example/catalogue/category/books/travel_2/index.html --fields title:string,price:number",
           "Follow a category: one JSON line per book.",
         ),
     handler: async (argv) => {
