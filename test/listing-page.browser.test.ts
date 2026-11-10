@@ -287,4 +287,34 @@ describe("listing links on a real browser", () => {
       warnings: [expect.stringContaining("/category/:slug does not match the pagination link(s) https://shop.test/blog/post-1")],
     });
   });
+
+  it("repairs an item pattern that also matches the pagination links", async () => {
+    const listingUrl = "https://brands.test/rolex";
+    const brandPage = await browser.newPage();
+    await installPageContextHelpers(brandPage);
+    await brandPage.route("https://brands.test/**", route => route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><html><body><main>${[1, 2, 3].map(n => `<a class="watch" href="/rolex/submariner--id${n}">Watch</a>`).join("")}
+        <a class="next" href="/rolex/page-2">Next</a></main></body></html>`,
+    }));
+    await brandPage.goto(listingUrl);
+    const answer = { pageKind: "listing", itemLinks: ["a.watch"], nextPage: ["a.next"], pageLinks: [], pageUrlPattern: "/rolex/:page" };
+    const { provider, requests } = fakeProvider([
+      { ...answer, itemUrlPattern: "/:brand/:slug" },
+      { ...answer, itemUrlPattern: "/:brand/:slug--id:id" },
+    ]);
+
+    const result = await classifyPage({ page: brandPage, pagePacket: packet(listingUrl), skeleton: "", groups: [], provider, maxRepairs: 1 });
+    await brandPage.close();
+
+    expect(requests).toHaveLength(2);
+    expect(requests[1]!.messages.at(-1)!.content).toContain(
+      'Your previous itemUrlPattern "/:brand/:slug" failed a check: /:brand/:slug matches the pagination link(s) https://brands.test/rolex/page-2',
+    );
+    // /rolex and /rolex/page-2 differ in length, so no page pattern can match both; the page pattern falls back.
+    expect(result).toMatchObject({
+      kind: "listing",
+      template: { itemUrlPatterns: ["/:brand/:slug--id:id"], itemLinks: ["a.watch"], urlPatterns: ["/rolex"] },
+    });
+  });
 });

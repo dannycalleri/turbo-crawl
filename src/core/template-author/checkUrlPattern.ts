@@ -28,10 +28,12 @@ export function checkUrlPattern(answer: PatternAnswer | null, pageUrl: string, p
     return null;
 }
 
-export function checkItemUrlPattern(pattern: string, pageUrl: string): string | null {
+export function checkItemUrlPattern(pattern: string, pageUrl: string, paginationUrls: string[] = []): string | null {
     if (!pattern) return "no itemUrlPattern was given";
     if (!isValidPattern(pattern)) return invalid(pattern);
     if (urlMatchesPattern(pageUrl, pattern)) return `the listing page ${pageUrl} matches ${pattern}, so it cannot be the pattern of the item pages`;
+    const caught = paginationUrls.filter(url => urlMatchesPattern(url, pattern));
+    if (caught.length > 0) return `${pattern} matches the pagination link(s) ${caught.slice(0, 3).join(", ")}, so it cannot be the pattern of the item pages`;
     return null;
 }
 

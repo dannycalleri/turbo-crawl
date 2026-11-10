@@ -113,11 +113,18 @@ export async function classifyPage(input: ClassifyPageInput): Promise<PageClassi
             else failures[role] = results;
         }
 
+        const paginationUrls = [...(passing.nextPage ?? []), ...(passing.pageLinks ?? [])].flatMap(result => result.links.map(link => link.url));
+        const paginationFailure = passing.itemLinks ? checkItemUrlPattern(candidateItemPattern, finalUrl, paginationUrls) : null;
+        if (passing.itemLinks && paginationFailure !== null) {
+            failures.itemLinks = passing.itemLinks.map(result => ({ ...result, passed: false, reason: "not kept, because the itemUrlPattern failed a check" }));
+            delete passing.itemLinks;
+            itemPattern = null;
+        }
+
         if (passing.itemLinks) itemPattern = candidateItemPattern;
-        else patternFailures.itemUrlPattern = itemPatternFailure ?? `no itemLinks selector gave ${MIN_ITEM_LINKS} or more links that match ${candidateItemPattern}`;
+        else patternFailures.itemUrlPattern = paginationFailure ?? itemPatternFailure ?? `no itemLinks selector gave ${MIN_ITEM_LINKS} or more links that match ${candidateItemPattern}`;
 
         if (passing.itemLinks) {
-            const paginationUrls = [...(passing.nextPage ?? []), ...(passing.pageLinks ?? [])].flatMap(result => result.links.map(link => link.url));
             const itemUrls = passing.itemLinks[0]!.links.map(link => link.url);
             const check = (pattern: string) => checkPageUrlPattern(pattern, finalUrl, paginationUrls, itemUrls);
             if (pagePattern === null || check(pagePattern) !== null) {
