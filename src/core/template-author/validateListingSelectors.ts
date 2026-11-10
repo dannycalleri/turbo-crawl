@@ -1,6 +1,6 @@
 import type { Page } from "playwright";
 import { readDomLinks, sameHostLinks, type LinkItem } from "../extraction/links";
-import { matchingPattern } from "../templating/urlPatterns";
+import { urlMatchesPattern } from "../templating/urlPatterns";
 import type { ListingTemplate } from "../templating/types";
 
 export const MIN_ITEM_LINKS = 2;
@@ -26,7 +26,7 @@ export type ListingLinks = {
 
 export function itemLinksFit(urls: string[], pageUrl: string, itemUrlPatterns: string[]): ItemLinksFit {
     const sameHost = sameHostLinks(urls, pageUrl);
-    const itemUrls = sameHost.filter(url => matchingPattern(url, itemUrlPatterns) !== undefined);
+    const itemUrls = sameHost.filter(url => urlMatchesPattern(url, itemUrlPatterns));
     if (itemUrls.length < MIN_ITEM_LINKS) {
         return {
             fits: false,

@@ -4,7 +4,7 @@ import type { LLMProvider } from "./llm-extractor/providers/LLMProvider.ts";
 import type { UserSchema } from "./llm-extractor/types.ts";
 import type { ExtractionTemplate } from "./templating/types.ts";
 import { inferUrlPattern } from "./templating/inferUrlPattern.ts";
-import { matchingPattern, templateCoversUrl } from "./templating/urlPatterns.ts";
+import { matchingPattern, urlMatchesPattern } from "./templating/urlPatterns.ts";
 import { buildPolicy, CrawlFailure, failureForStatus, type PolicyInfo } from "./policy/policy.ts";
 import { decideTemplate, missingFields, type TemplateTrial } from "./template-matcher/matchTemplate.ts";
 import type { RobotsChecker, RobotsStatus } from "./policy/robots.ts";
@@ -229,7 +229,7 @@ export async function startCrawl(
       ? []
       : domainListings.candidates.filter(candidate => !input.listingTemplatePath || candidate.path === input.listingTemplatePath);
     const isItemPage = !input.listingTemplatePath && input.expect !== "listing" &&
-      domainListings.candidates.some(candidate => matchingPattern(finalUrl, candidate.template.itemUrlPatterns) !== undefined);
+      domainListings.candidates.some(candidate => urlMatchesPattern(finalUrl, candidate.template.itemUrlPatterns));
     const listingFit = isItemPage ? null : await findListingFit(page, listingCandidates, finalUrl, deps);
     const listingOutcome = async ({ candidate, links, matchedPattern }: ListingFit): Promise<ListingOutcome> => {
       if (!matchedPattern) await deps.addPatternToTemplate(candidate.path, finalUrl);
@@ -250,7 +250,7 @@ export async function startCrawl(
 
     // A related-products block can fit a listing template, so on a page that
     // a field template knows, a listing fit on a page it does not know waits for the field templates.
-    const fieldKnowsPattern = fieldCandidates.some(candidate => templateCoversUrl(candidate.template, finalUrl));
+    const fieldKnowsPattern = fieldCandidates.some(candidate => urlMatchesPattern(finalUrl, candidate.template.urlPatterns));
     if (listingFit && (listingFit.matchedPattern || !fieldKnowsPattern)) {
       return listingOutcome(listingFit);
     }
@@ -457,7 +457,7 @@ async function findListingFit(
   const fits: ListingFit[] = [];
   for (const candidate of candidates) {
     const links = await deps.readListingLinks(page, candidate.template);
-    if (links) fits.push({ candidate, links, matchedPattern: templateCoversUrl(candidate.template, url) });
+    if (links) fits.push({ candidate, links, matchedPattern: urlMatchesPattern(url, candidate.template.urlPatterns) });
   }
   return fits.sort((left, right) =>
     Number(right.matchedPattern) - Number(left.matchedPattern) ||

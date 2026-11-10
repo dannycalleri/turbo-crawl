@@ -16,12 +16,8 @@ export function isValidPattern(pattern: string): boolean {
     return compilePattern(pattern) !== null;
 }
 
-export function urlMatchesPattern(url: string, pattern: string): boolean {
-    return matchingPattern(url, [pattern]) !== undefined;
-}
-
-export function templateCoversUrl(template: { urlPatterns: string[] }, url: string): boolean {
-    return matchingPattern(url, template.urlPatterns) !== undefined;
+export function urlMatchesPattern(url: string, patterns: string | string[]): boolean {
+    return matchingPattern(url, typeof patterns === "string" ? [patterns] : patterns) !== undefined;
 }
 
 export function matchingPattern(rawUrl: string, patterns: string[]): string | undefined {
