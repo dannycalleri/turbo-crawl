@@ -185,6 +185,7 @@ export function buildRepairMessages(input: {
     failures: Record<string, SelectorValidation[]>;
     links: string[];
     patternFailure: string | null;
+    bodyMissing: boolean;
 }): ChatMessage[] {
     const failedFields = Object.keys(input.failures);
     const report = failedFields
@@ -205,8 +206,13 @@ export function buildRepairMessages(input: {
         parts.push(
             `Your previous selectors for some fields failed when run on the live page. Write new selectors for these fields only: ${formatSchema(repairSchema)}`,
             `Failure report:\n${report}`,
-            SELECTOR_RULES,
         );
+    }
+    if (input.bodyMissing) {
+        parts.push(`None of your working selectors is a css selector, and the template is matched to pages by its page-body selectors. Write a css selector for each field whose value is visible on the page: ${formatSchema(input.schema)}. Leave the others empty.`);
+    }
+    if (failedFields.length > 0 || input.bodyMissing) {
+        parts.push(SELECTOR_RULES);
     } else {
         parts.push("Your previous selectors all worked. Leave fields empty.");
     }
