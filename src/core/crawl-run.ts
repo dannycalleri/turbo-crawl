@@ -231,7 +231,7 @@ export async function startCrawl(
     const listingCandidates = input.listingTemplatePath
       ? savedListings.candidates.filter(candidate => candidate.path === input.listingTemplatePath)
       : savedListings.candidates;
-    const isItemPage = domainListings.candidates.some(candidate =>
+    const isItemPage = !input.listingTemplatePath && input.expect !== "listing" && domainListings.candidates.some(candidate =>
       candidate.template.itemUrlPatterns.some(pattern => urlMatchesPattern(finalUrl, pattern)));
     const listingFit = isItemPage ? null : await findListingFit(page, listingCandidates, finalUrl, deps);
     const listingOutcome = async ({ candidate, links, matchedPattern }: ListingFit): Promise<ListingOutcome> => {

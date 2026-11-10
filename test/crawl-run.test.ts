@@ -481,6 +481,19 @@ describe("listing pages", () => {
     expect((await readJsonFile<ExtractionTemplate>(firstCard.path)).urlPatterns).toEqual(["/news/:slug"]);
   });
 
+  it("reads a page with a named listing template even when the URL matches the item pattern", async () => {
+    const harness = await createHarness({ listingLinks: () => links });
+    const saved = await saveListingTemplate(harness.store, { ...listingTemplate, urlPatterns: ["/category/:slug"], itemUrlPatterns: ["/:page"] });
+
+    const outcome = await startCrawl(
+      { target: "https://example.com/final", schema: {}, expect: "listing", listingTemplatePath: saved.path },
+      harness.options,
+      harness.deps,
+    );
+
+    expect(outcome).toMatchObject({ kind: "listing", ...links, templateFit: { templatePath: saved.path } });
+  });
+
   it("never gives the listing result on a URL that matches a listing's item pattern", async () => {
     const harness = await createHarness({ listingLinks: () => links });
     await saveListingTemplate(harness.store, { ...listingTemplate, urlPatterns: ["/category/:slug"], itemUrlPatterns: ["/:page"] });

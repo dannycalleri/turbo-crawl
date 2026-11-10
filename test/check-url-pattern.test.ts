@@ -53,6 +53,12 @@ describe("listing pattern checks", () => {
     expect(checkItemUrlPattern("/:a/:b", "https://www.watches.example/rolex/index.htm")).toContain("cannot be the pattern of the item pages");
   });
 
+  it("rejects an item pattern that matches a pagination link", () => {
+    expect(checkItemUrlPattern("/:brand/:slug", "https://shop.example/rolex", ["https://shop.example/rolex/page-2"]))
+      .toBe("/:brand/:slug matches the pagination link(s) https://shop.example/rolex/page-2, so it cannot be the pattern of the item pages");
+    expect(checkItemUrlPattern("/:brand/:slug--id:id", "https://shop.example/rolex", ["https://shop.example/rolex/page-2"])).toBeNull();
+  });
+
   it("accepts a page pattern that matches the page and its pagination, and no item", () => {
     const next = "https://www.watches.example/search/index.htm?query=submariner&showpage=2";
     expect(checkPageUrlPattern("/search/index.htm?query=:q", searchUrl, [next], items)).toBeNull();
