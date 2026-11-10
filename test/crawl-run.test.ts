@@ -352,7 +352,7 @@ describe("listing pages", () => {
     itemLinks: ["ul.grid a.card"],
     nextPage: ["a[rel=next]"],
     pageLinks: [],
-    itemUrlPattern: "/products/:slug",
+    itemUrlPatterns: ["/products/:slug"],
     createdFromUrl: "https://example.com/final",
     createdAt: "2026-11-05T00:00:00.000Z",
   };
@@ -391,7 +391,7 @@ describe("listing pages", () => {
     });
     expect(harness.authorCalls).toHaveLength(0);
     expect(harness.classifyCalls[0]?.groups).toEqual([productGroup]);
-    expect(await readJsonFile<unknown>(path.join(harness.store.listingsPath, "fixture.json"))).toEqual(classification.template);
+    expect(await readJsonFile<unknown>(path.join(harness.store.listingsPath, "fixture.json"))).toEqual({ ...classification.template, itemUrlPattern: "/products/:slug" });
   });
 
   it("reads the links with a saved listing template that fits, with no agent call, and saves the new URL pattern", async () => {
@@ -416,7 +416,7 @@ describe("listing pages", () => {
 
     const listingHarness = await createHarness({ listingLinks: () => null });
     await saveTemplate(listingHarness.store, { ...createTemplate(), urlPatterns: ["/news/:slug"] });
-    await saveListingTemplate(listingHarness.store, { ...listingTemplate, urlPatterns: ["/category/:slug"], itemUrlPattern: "/:item" });
+    await saveListingTemplate(listingHarness.store, { ...listingTemplate, urlPatterns: ["/category/:slug"], itemUrlPatterns: ["/:item"] });
 
     const byListingItems = await startCrawl({ ...fieldsInput({ title: "string" }), expect: "detail" }, listingHarness.options, listingHarness.deps);
     expect(byListingItems).toMatchObject({ urlPattern: "/:item", path: "template-reuse" });

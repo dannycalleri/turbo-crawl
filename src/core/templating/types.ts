@@ -53,7 +53,7 @@ export type ListingTemplate = {
     itemLinks: string[];
     nextPage: string[];
     pageLinks: string[];
-    itemUrlPattern: string;
+    itemUrlPatterns: string[];
     createdFromUrl: string;
     createdAt: string;
 };

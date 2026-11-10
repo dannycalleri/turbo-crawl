@@ -181,7 +181,8 @@ export async function saveListingTemplate(
   template: ListingTemplate,
 ): Promise<ListingTemplateArtifact> {
   const artifactPath = path.join(store.listingsPath, `${template.id.replace(/^listing_/, "")}.json`);
-  await writeJsonFile(artifactPath, template);
+  // 0.3.0 reads only itemUrlPattern; keep writing it until 1.0.
+  await writeJsonFile(artifactPath, { ...template, itemUrlPattern: template.itemUrlPatterns[0] });
   return { path: artifactPath, template };
 }
 
@@ -189,15 +190,25 @@ export async function listListingTemplates(
   store: DomainStore,
 ): Promise<ReuseDiscoveryResult<ListingTemplateArtifact>> {
   return readTemplateArtifacts(store.listingsPath, "listing template", (value, artifactPath, warnings) => {
-    if (isListingTemplate(value) && normalizeStoredDomain(value.domain) === store.domain) {
-      return { ...value, urlPatterns: normalizePatterns(value.urlPatterns) };
+    const itemUrlPatterns = isRecord(value) ? readItemUrlPatterns(value) : null;
+    if (itemUrlPatterns && isListingTemplate(value) && normalizeStoredDomain(value.domain) === store.domain) {
+      const { itemUrlPattern: _legacy, ...template } = value as ListingTemplate & { itemUrlPattern?: string };
+      return { ...template, urlPatterns: normalizePatterns(value.urlPatterns), itemUrlPatterns };
     }
     pushTemplateValidationWarning(warnings, artifactPath, `Listing template is invalid or does not match domain ${store.domain}.`);
     return null;
   });
 }
 
-function isListingTemplate(value: unknown): value is ListingTemplate {
+function readItemUrlPatterns(value: Record<string, unknown>): string[] | null {
+  const { itemUrlPatterns, itemUrlPattern } = value;
+  if (Array.isArray(itemUrlPatterns) && itemUrlPatterns.length > 0 && itemUrlPatterns.every(item => typeof item === "string")) {
+    return itemUrlPatterns;
+  }
+  return typeof itemUrlPattern === "string" ? [itemUrlPattern] : null;
+}
+
+function isListingTemplate(value: unknown): value is Omit<ListingTemplate, "itemUrlPatterns"> {
   const isStrings = (list: unknown) => Array.isArray(list) && list.every(item => typeof item === "string");
   return (
     isRecord(value) &&
@@ -209,7 +220,6 @@ function isListingTemplate(value: unknown): value is ListingTemplate {
     (value.itemLinks as string[]).length > 0 &&
     isStrings(value.nextPage) &&
     isStrings(value.pageLinks) &&
-    typeof value.itemUrlPattern === "string" &&
     typeof value.createdFromUrl === "string" &&
     typeof value.createdAt === "string"
   );
