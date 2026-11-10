@@ -25,15 +25,16 @@ The first time turbo-crawl sees a page layout, it asks a coding agent you alread
 
 You need Node.js 20 or later, and one template author, installed and logged in: [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude`, the default) or the [Codex CLI](https://github.com/openai/codex) (`codex`). A local [LM Studio](https://lmstudio.ai) server works too, with `--provider lmstudio`. The agent is needed only where a template is written.
 
+Install Chromium for Playwright one time. turbo-crawl does not download it for you:
+
 ```sh
-npm install -g @fragmentoid/turbo-crawl
 npx playwright install chromium
 ```
 
-Crawl a product page and name the fields you want:
+Then run turbo-crawl with `npx`. Crawl a product page and name the fields you want:
 
 ```console
-$ turbo-crawl crawl https://bookshop.example/catalogue/a-light-in-the-attic_1000/index.html \
+$ npx @fragmentoid/turbo-crawl crawl https://bookshop.example/catalogue/a-light-in-the-attic_1000/index.html \
     --fields title:string,price:number,availability:string,upc:string
 Rendering https://bookshop.example/catalogue/a-light-in-the-attic_1000/index.html…
 Using claude to write the template.
@@ -57,7 +58,7 @@ Asking claude to write selectors for 4 fields…
 Crawl another page with the same layout. The saved template reads it, and no model is called:
 
 ```console
-$ turbo-crawl crawl https://bookshop.example/catalogue/sapiens-a-brief-history-of-humankind_996/index.html
+$ npx @fragmentoid/turbo-crawl crawl https://bookshop.example/catalogue/sapiens-a-brief-history-of-humankind_996/index.html
 Extracted with the saved template data/bookshop.example/templates/dc69babc39c9291d.json.
 {
   "ok": true,
@@ -68,7 +69,14 @@ Extracted with the saved template data/bookshop.example/templates/dc69babc39c929
 }
 ```
 
-You can also run it without installing: `npx @fragmentoid/turbo-crawl crawl <url> ...`.
+### Install it globally (optional)
+
+To type `turbo-crawl` instead of `npx @fragmentoid/turbo-crawl`, install the package:
+
+```sh
+npm install -g @fragmentoid/turbo-crawl
+turbo-crawl crawl <url> --fields title:string
+```
 
 ## Why turbo-crawl
 
@@ -88,13 +96,13 @@ You can also run it without installing: `npx @fragmentoid/turbo-crawl crawl <url
 **Let the agent choose the fields.** Leave out `--fields`, and the agent suggests the fields for the page:
 
 ```sh
-turbo-crawl crawl https://news.example/2026/11/04/clock-3
+npx @fragmentoid/turbo-crawl crawl https://news.example/2026/11/04/clock-3
 ```
 
 **Crawl a listing.** Every item of a category page, following its next pages, as NDJSON:
 
 ```console
-$ turbo-crawl crawl https://bookshop.example/catalogue/category/books/mystery_3/index.html \
+$ npx @fragmentoid/turbo-crawl crawl https://bookshop.example/catalogue/category/books/mystery_3/index.html \
     --fields title:string,price:number --max-items 25 > books.ndjson
 Crawled 2 listing page(s): 25 item(s) extracted, 0 failed.
 
@@ -105,7 +113,7 @@ $ head -1 books.ndjson
 **Never call a model.** With `--no-author`, only saved templates are used. When none fits, the CLI exits 3:
 
 ```sh
-turbo-crawl crawl https://bookshop.example/catalogue/sharp-objects_997/index.html --no-author --data-dir templates
+npx @fragmentoid/turbo-crawl crawl https://bookshop.example/catalogue/sharp-objects_997/index.html --no-author --data-dir templates
 ```
 
 **Use it from Node.** Author templates on your machine, commit them, and extract in CI with `authoring: "never"`:

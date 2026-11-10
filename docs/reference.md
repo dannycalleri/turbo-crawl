@@ -15,8 +15,12 @@
 ## CLI
 
 ```bash
-turbo-crawl crawl <url> [options]
+npx @fragmentoid/turbo-crawl crawl <url> [options]
 ```
+
+After a global install (`npm install -g @fragmentoid/turbo-crawl`), you can type `turbo-crawl crawl <url> [options]`.
+
+turbo-crawl does not download Chromium. Before the first crawl, run `npx playwright install chromium`.
 
 | Option | Description |
 | --- | --- |
