@@ -15,7 +15,7 @@ export type ClassifyResponse = {
     itemUrlPattern: string;
 };
 
-export type ListingPatternFailures = Partial<Record<"itemUrlPattern" | "pageUrlPattern", string>>;
+export type ListingPatternFailures = Partial<Record<"itemUrlPattern" | "pageUrlPattern", { pattern: string; reason: string }>>;
 
 const SYSTEM_PROMPT = [
     "You decide if a web page is a listing of items or the page of one item, and for a listing you write durable CSS selectors for its links.",
@@ -121,8 +121,8 @@ export function buildListingRepairMessages(input: {
                     ? `This page is a listing. Your previous selectors failed when run on the live page. Answer pageKind "listing" and write new selectors for ${Object.keys(input.failures).join(", ")} only; give empty arrays for the others.`
                     : `This page is a listing. Your previous selectors worked. Answer pageKind "listing" and give empty selector arrays.`,
                 ...(report ? [`Failure report:\n${report}`] : []),
-                ...Object.entries(input.patternFailures).map(([key, reason]) =>
-                    `Your previous ${key} ${JSON.stringify(input.previous[key as keyof ListingPatternFailures])} failed a check: ${reason}. Write a new ${key}.`),
+                ...Object.entries(input.patternFailures).map(([key, { pattern, reason }]) =>
+                    `Your previous ${key} ${JSON.stringify(pattern)} failed a check: ${reason}. Write a new ${key}.`),
                 LISTING_RULES,
                 `Links on this host, grouped by URL pattern:\n${formatGroups(input.groups)}`,
                 formatPageContext(input.page),

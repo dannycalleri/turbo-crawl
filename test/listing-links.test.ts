@@ -92,7 +92,7 @@ describe("listing prompt", () => {
       groups: [],
       previous,
       failures: { itemLinks: [{ selector: "a.card", passed: false, links: [], reason: "not checked, because the itemUrlPattern failed a check" }] },
-      patternFailures: { itemUrlPattern: "the listing page matches /:a/:b" },
+      patternFailures: { itemUrlPattern: { pattern: "/:a/:b", reason: "the listing page matches /:a/:b" } },
     }).at(-1)!.content;
 
     expect(prompt).toContain("write new selectors for itemLinks only");

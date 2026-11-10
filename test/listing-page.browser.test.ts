@@ -288,6 +288,32 @@ describe("listing links on a real browser", () => {
     });
   });
 
+  it("quotes the item pattern that failed, when it was accepted in an earlier round", async () => {
+    const listingUrl = "https://brands.test/rolex";
+    const brandPage = await browser.newPage();
+    await installPageContextHelpers(brandPage);
+    await brandPage.route("https://brands.test/**", route => route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><html><body><main>${[1, 2, 3].map(n => `<a class="watch" href="/rolex/submariner--id${n}">Watch</a>`).join("")}
+        <a class="next" href="/rolex/page-2">Next</a></main></body></html>`,
+    }));
+    await brandPage.goto(listingUrl);
+    const answer = { pageKind: "listing", itemLinks: ["a.watch"], pageLinks: [], pageUrlPattern: "/rolex/:page" };
+    const { provider, requests } = fakeProvider([
+      { ...answer, nextPage: ["main"], itemUrlPattern: "/:brand/:slug" },
+      { ...answer, itemLinks: [], nextPage: ["a.next"], itemUrlPattern: "" },
+      { ...answer, nextPage: [], itemUrlPattern: "/:brand/:slug--id:id" },
+    ]);
+
+    await classifyPage({ page: brandPage, pagePacket: packet(listingUrl), skeleton: "", groups: [], provider, maxRepairs: 2 }).catch(() => null);
+    await brandPage.close();
+
+    expect(requests).toHaveLength(3);
+    expect(requests[2]!.messages.at(-1)!.content).toContain(
+      'Your previous itemUrlPattern "/:brand/:slug" failed a check: /:brand/:slug matches the pagination link(s) https://brands.test/rolex/page-2',
+    );
+  });
+
   it("repairs an item pattern that also matches the pagination links", async () => {
     const listingUrl = "https://brands.test/rolex";
     const brandPage = await browser.newPage();
