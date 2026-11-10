@@ -1,5 +1,6 @@
 import type { TemplateMatchCandidate } from "../domain-store.ts";
 import type { TemplateExtractionResult } from "../template-extractor/types.ts";
+import { templateCoversUrl } from "../templating/urlPatterns.ts";
 
 export const MIN_TEXT_FIELD_LENGTH = 200;
 
@@ -15,7 +16,7 @@ export type MatchDecision =
   | { kind: "none" };
 
 export type MatchOptions = {
-  urlPattern: string;
+  url: string;
   require?: string[];
   fieldsGiven: boolean;
 };
@@ -24,20 +25,20 @@ export function decideTemplate(trials: TemplateTrial[], options: MatchOptions): 
   const fits = trials.filter(trial => misfitReasons(trial, options.require).length === 0);
 
   if (fits.length > 0) {
-    const ranked = [...fits].sort((left, right) => compareRank(right, left, options.urlPattern));
+    const ranked = [...fits].sort((left, right) => compareRank(right, left, options.url));
     const best = ranked[0]!;
-    const tied = ranked.filter(trial => compareRank(trial, best, options.urlPattern) === 0);
+    const tied = ranked.filter(trial => compareRank(trial, best, options.url) === 0);
 
     if (tied.length > 1 && !options.fieldsGiven) {
       return { kind: "ambiguous", trials: tied };
     }
 
     const chosen = [...tied].sort((left, right) => right.candidate.template.createdAt.localeCompare(left.candidate.template.createdAt))[0]!;
-    return { kind: "fit", trial: chosen, matchedPattern: knowsPattern(chosen, options.urlPattern) };
+    return { kind: "fit", trial: chosen, matchedPattern: knowsPattern(chosen, options.url) };
   }
 
   const known = trials
-    .filter(trial => knowsPattern(trial, options.urlPattern))
+    .filter(trial => knowsPattern(trial, options.url))
     .sort((left, right) => foundCount(right) - foundCount(left));
   if (known.length > 0) {
     const trial = known[0]!;
@@ -84,10 +85,10 @@ export function misfitReasons(trial: TemplateTrial, require: string[] | undefine
   return reasons;
 }
 
-function compareRank(left: TemplateTrial, right: TemplateTrial, urlPattern: string): number {
+function compareRank(left: TemplateTrial, right: TemplateTrial, url: string): number {
   return (
     foundCount(left) - foundCount(right) ||
-    Number(knowsPattern(left, urlPattern)) - Number(knowsPattern(right, urlPattern))
+    Number(knowsPattern(left, url)) - Number(knowsPattern(right, url))
   );
 }
 
@@ -95,6 +96,6 @@ function foundCount(trial: TemplateTrial): number {
   return Object.values(trial.result.fieldResults).filter(field => field.normalizedValue !== null).length;
 }
 
-function knowsPattern(trial: TemplateTrial, urlPattern: string): boolean {
-  return trial.candidate.template.urlPatterns.includes(urlPattern);
+function knowsPattern(trial: TemplateTrial, url: string): boolean {
+  return templateCoversUrl(trial.candidate.template, url);
 }

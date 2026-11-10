@@ -47,7 +47,7 @@ const article = (overrides: Partial<Record<"headline" | "body", FieldRead>> = {}
 
 describe("decideTemplate", () => {
   it("fits a template on a new URL shape and says the pattern is new", () => {
-    const decision = decideTemplate([trial("a", ["/news/:slug"], article())], { urlPattern: "/:id/:id/:id/:slug", fieldsGiven: false });
+    const decision = decideTemplate([trial("a", ["/news/:slug"], article())], { url: "https://site.com/2026/11/04/rolex-daytona", fieldsGiven: false });
 
     expect(decision).toMatchObject({ kind: "fit", matchedPattern: false });
   });
@@ -59,29 +59,29 @@ describe("decideTemplate", () => {
     });
     const metaOnly = trial("b", ["/news/:slug"], { headline: { type: "string", value: "About us", kind: "meta" } });
 
-    expect(decideTemplate([aboutPage], { urlPattern: "/about", fieldsGiven: false }).kind).toBe("none");
-    expect(decideTemplate([metaOnly], { urlPattern: "/about", fieldsGiven: false }).kind).toBe("none");
+    expect(decideTemplate([aboutPage], { url: "https://site.com/about", fieldsGiven: false }).kind).toBe("none");
+    expect(decideTemplate([metaOnly], { url: "https://site.com/about", fieldsGiven: false }).kind).toBe("none");
   });
 
   it("does not fit when a required text field is shorter than 200 characters", () => {
     const caption = trial("a", ["/news/:slug"], article({ body: { type: "text", value: "Photo: Rolex" } }));
 
-    expect(decideTemplate([caption], { urlPattern: "/gallery/:slug", fieldsGiven: false }).kind).toBe("none");
+    expect(decideTemplate([caption], { url: "https://site.com/gallery/sunset-pier", fieldsGiven: false }).kind).toBe("none");
   });
 
   it("does not fit when an optional text field holds a short value", () => {
     const caption = trial("a", ["/news/:slug"], article({ body: { type: "text", value: "Photo: Rolex" } }));
     const noBody = trial("b", ["/news/:slug"], article({ body: { type: "text", value: null } }));
 
-    expect(decideTemplate([caption], { urlPattern: "/x/:slug", require: ["headline"], fieldsGiven: true }).kind).toBe("none");
-    expect(decideTemplate([noBody], { urlPattern: "/x/:slug", require: ["headline"], fieldsGiven: true }).kind).toBe("fit");
+    expect(decideTemplate([caption], { url: "https://site.com/x/some-story", require: ["headline"], fieldsGiven: true }).kind).toBe("none");
+    expect(decideTemplate([noBody], { url: "https://site.com/x/some-story", require: ["headline"], fieldsGiven: true }).kind).toBe("fit");
   });
 
   it("lets require narrow the fields that must have a value", () => {
     const noDate = trial("a", ["/news/:slug"], { ...article(), date: { type: "date", value: null } });
 
-    expect(decideTemplate([noDate], { urlPattern: "/news/:slug", fieldsGiven: true }).kind).toBe("stale");
-    expect(decideTemplate([noDate], { urlPattern: "/news/:slug", require: ["headline", "body"], fieldsGiven: true }))
+    expect(decideTemplate([noDate], { url: "https://site.com/news/some-story", fieldsGiven: true }).kind).toBe("stale");
+    expect(decideTemplate([noDate], { url: "https://site.com/news/some-story", require: ["headline", "body"], fieldsGiven: true }))
       .toMatchObject({ kind: "fit", matchedPattern: true });
   });
 
@@ -89,7 +89,7 @@ describe("decideTemplate", () => {
     const fewer = trial("fewer", ["/news/:slug"], { ...article(), date: { type: "date", value: null } });
     const more = trial("more", ["/blog/:slug"], { ...article(), date: { type: "date", value: "2026-11-04T00:00:00.000Z" } });
     const known = trial("known", ["/news/:slug"], { ...article(), date: { type: "date", value: "2026-11-04T00:00:00.000Z" } });
-    const options = { urlPattern: "/news/:slug", require: ["headline", "body"], fieldsGiven: false };
+    const options = { url: "https://site.com/news/some-story", require: ["headline", "body"], fieldsGiven: false };
 
     expect(decideTemplate([fewer, more], options)).toMatchObject({ kind: "fit", trial: { candidate: { template: { id: "more" } } } });
     expect(decideTemplate([more, known], options)).toMatchObject({ kind: "fit", trial: { candidate: { template: { id: "known" } } } });
@@ -99,25 +99,34 @@ describe("decideTemplate", () => {
     const older = trial("older", ["/a/:slug"], article(), "2026-10-01T00:00:00.000Z");
     const newer = trial("newer", ["/b/:slug"], article(), "2026-11-01T00:00:00.000Z");
 
-    expect(decideTemplate([older, newer], { urlPattern: "/c/:slug", fieldsGiven: false })).toMatchObject({ kind: "ambiguous" });
-    expect(decideTemplate([older, newer], { urlPattern: "/c/:slug", fieldsGiven: true }))
+    expect(decideTemplate([older, newer], { url: "https://site.com/c/some-item", fieldsGiven: false })).toMatchObject({ kind: "ambiguous" });
+    expect(decideTemplate([older, newer], { url: "https://site.com/c/some-item", fieldsGiven: true }))
       .toMatchObject({ kind: "fit", trial: { candidate: { template: { id: "newer" } } } });
   });
 
   it("returns a stale result when only a template for this pattern no longer fits", () => {
     const redesigned = trial("a", ["/news/:slug"], article({ body: { type: "text", value: null } }));
 
-    expect(decideTemplate([redesigned], { urlPattern: "/news/:slug", fieldsGiven: false })).toMatchObject({
+    expect(decideTemplate([redesigned], { url: "https://site.com/news/some-story", fieldsGiven: false })).toMatchObject({
       kind: "stale",
       reasons: ["no value for body"],
     });
-    expect(decideTemplate([redesigned], { urlPattern: "/other/:slug", fieldsGiven: false }).kind).toBe("none");
+    expect(decideTemplate([redesigned], { url: "https://site.com/other/some-story", fieldsGiven: false }).kind).toBe("none");
+  });
+
+  it("returns a stale result on a URL that a typed pattern covers", () => {
+    const redesigned = trial("a", ["/:brand/:slug--id:id.htm"], article({ body: { type: "text", value: null } }));
+
+    expect(decideTemplate([redesigned], { url: "https://www.watches.example/omega/omega-speedmaster--id50011122.htm", fieldsGiven: false }).kind)
+      .toBe("stale");
+    expect(decideTemplate([redesigned], { url: "https://www.watches.example/rolex/rolex-submariner--mod1.htm", fieldsGiven: false }).kind)
+      .toBe("none");
   });
 
   it("says why a stale template no longer fits when every field has a value", () => {
     const shortItem = trial("a", ["/news/:slug"], article({ body: { type: "text", value: "A short news item." } }));
 
-    expect(decideTemplate([shortItem], { urlPattern: "/news/:slug", fieldsGiven: false })).toMatchObject({
+    expect(decideTemplate([shortItem], { url: "https://site.com/news/some-story", fieldsGiven: false })).toMatchObject({
       kind: "stale",
       reasons: ["body is shorter than 200 characters"],
     });
