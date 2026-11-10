@@ -4,6 +4,7 @@ import type { LLMProvider } from "./llm-extractor/providers/LLMProvider.ts";
 import type { UserSchema } from "./llm-extractor/types.ts";
 import type { ExtractionTemplate } from "./templating/types.ts";
 import { inferUrlPattern } from "./templating/inferUrlPattern.ts";
+import { templateCoversUrl } from "./templating/urlPatterns.ts";
 import { buildPolicy, CrawlFailure, failureForStatus, type PolicyInfo } from "./policy/policy.ts";
 import { decideTemplate, missingFields, type TemplateTrial } from "./template-matcher/matchTemplate.ts";
 import type { RobotsChecker, RobotsStatus } from "./policy/robots.ts";
@@ -227,7 +228,7 @@ export async function startCrawl(
     const listingCandidates = input.listingTemplatePath
       ? savedListings.candidates.filter(candidate => candidate.path === input.listingTemplatePath)
       : savedListings.candidates;
-    const listingFit = await findListingFit(page, listingCandidates, urlPattern, deps);
+    const listingFit = await findListingFit(page, listingCandidates, finalUrl, deps);
     const listingOutcome = async ({ candidate, links, matchedPattern }: ListingFit): Promise<ListingOutcome> => {
       if (!matchedPattern) await deps.addPatternToTemplate(candidate.path, urlPattern);
       progress(`Read the links with the saved listing template ${candidate.path}.`);
@@ -244,9 +245,9 @@ export async function startCrawl(
       };
     };
 
-    // A related-products block can fit a listing template, so on a URL pattern that
-    // a field template knows, a listing fit on a new pattern waits for the field templates.
-    const fieldKnowsPattern = saved.candidates.some(candidate => candidate.template.urlPatterns.includes(urlPattern));
+    // A related-products block can fit a listing template, so on a page that
+    // a field template knows, a listing fit on a page it does not know waits for the field templates.
+    const fieldKnowsPattern = saved.candidates.some(candidate => templateCoversUrl(candidate.template, finalUrl));
     if (listingFit && (listingFit.matchedPattern || !fieldKnowsPattern)) {
       return listingOutcome(listingFit);
     }
@@ -255,7 +256,7 @@ export async function startCrawl(
       candidate,
       result: await deps.extractWithTemplate({ page, pagePacket, template: candidate.template }),
     })));
-    const decision = decideTemplate(trials, { urlPattern, require: input.require, fieldsGiven });
+    const decision = decideTemplate(trials, { url: finalUrl, require: input.require, fieldsGiven });
 
     if (decision.kind === "ambiguous") {
       const paths = decision.trials.map(trial => trial.candidate.path);
@@ -443,13 +444,13 @@ type ListingFit = { candidate: ListingTemplateArtifact; links: ListingLinks; mat
 async function findListingFit(
   page: RenderedPageContext["page"],
   candidates: ListingTemplateArtifact[],
-  urlPattern: string,
+  url: string,
   deps: StartCrawlDependencies,
 ): Promise<ListingFit | null> {
   const fits: ListingFit[] = [];
   for (const candidate of candidates) {
     const links = await deps.readListingLinks(page, candidate.template);
-    if (links) fits.push({ candidate, links, matchedPattern: candidate.template.urlPatterns.includes(urlPattern) });
+    if (links) fits.push({ candidate, links, matchedPattern: templateCoversUrl(candidate.template, url) });
   }
   return fits.sort((left, right) =>
     Number(right.matchedPattern) - Number(left.matchedPattern) ||

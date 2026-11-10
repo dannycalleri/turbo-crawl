@@ -193,6 +193,17 @@ describe("crawl start stub wiring", () => {
     expect(saved?.template.urlPatterns).toEqual(["/news/:slug", "/final"]);
   });
 
+  it("does not write a template whose typed pattern covers the URL", async () => {
+    const harness = await createHarness();
+    await saveTemplate(harness.store, { ...createTemplate(), urlPatterns: ["/:page"] });
+
+    const outcome = await startCrawl({ target: "https://example.com/final", schema: {} }, harness.options, harness.deps);
+
+    expect(outcome.templateFit.matchedPattern).toBe(true);
+    const [saved] = (await listTemplatesForDomain(harness.store)).candidates;
+    expect(saved?.template.urlPatterns).toEqual(["/:page"]);
+  });
+
   it("fails with TEMPLATE_MISSING and never resolves a provider when authoring is off", async () => {
     const harness = await createHarness();
 
@@ -371,6 +382,16 @@ describe("listing pages", () => {
     expect(harness.providerResolutions).toBe(0);
     expect(harness.classifyCalls).toHaveLength(0);
     expect((await readJsonFile<ListingTemplate>(saved.path)).urlPatterns).toEqual(["/category/:slug", "/final"]);
+  });
+
+  it("does not write a listing template whose typed pattern covers the URL", async () => {
+    const harness = await createHarness({ linkGroups: [productGroup], listingLinks: () => links });
+    const saved = await saveListingTemplate(harness.store, { ...listingTemplate, urlPatterns: ["/:page"] });
+
+    const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
+
+    expect(outcome).toMatchObject({ kind: "listing", templateFit: { templatePath: saved.path, matchedPattern: true } });
+    expect((await readJsonFile<ListingTemplate>(saved.path)).urlPatterns).toEqual(["/:page"]);
   });
 
   it("keeps a field template that knows the URL pattern over a listing template that fits on a new pattern", async () => {
