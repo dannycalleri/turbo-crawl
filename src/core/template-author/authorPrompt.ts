@@ -201,6 +201,8 @@ export function buildRepairMessages(input: {
 
     const repairSchema = Object.fromEntries(failedFields.map(name => [name, input.schema[name]!])) as UserSchema;
 
+    const askSelectors = failedFields.length > 0 || input.bodyMissing;
+    const askPattern = input.patternFailure !== null;
     const parts: string[] = [];
     if (failedFields.length > 0) {
         parts.push(
@@ -211,19 +213,15 @@ export function buildRepairMessages(input: {
     if (input.bodyMissing) {
         parts.push(`None of your working selectors is a css selector, and the template is matched to pages by its page-body selectors. Write a css selector for each field whose value is visible on the page: ${formatSchema(input.schema)}. Leave the others empty.`);
     }
-    if (failedFields.length > 0 || input.bodyMissing) {
-        parts.push(SELECTOR_RULES);
-    } else {
-        parts.push("Your previous selectors all worked. Leave fields empty.");
-    }
-    if (input.patternFailure !== null) {
+    parts.push(askSelectors ? SELECTOR_RULES : "Your previous selectors all worked. Leave fields empty.");
+    if (askPattern) {
         parts.push(
             `Your previous urlPattern ${JSON.stringify(input.previous.pattern?.urlPattern ?? null)} failed a check: ${input.patternFailure}. Write a new urlPattern, sameTypeLinks and otherTypeLinks.`,
             PATTERN_RULES,
         );
     }
     parts.push(formatPageContext(input.page));
-    if (input.patternFailure !== null) parts.push(formatLinks(input.links));
+    if (askPattern) parts.push(formatLinks(input.links));
 
     return [
         { role: "system", content: SYSTEM_PROMPT },
