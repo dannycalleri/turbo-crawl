@@ -39,7 +39,11 @@ const article: ItemOutcome = {
 const index: ListingOutcome = {
   ...facts,
   kind: "listing",
-  items: [{ url: "https://site.com/news/rolex-daytona", text: "B", cssPath: "main > a.card" }],
+  items: [
+    { url: "https://site.com/news/rolex-daytona", text: "B", cssPath: "main > a.card" },
+    { url: "https://site.com/about", text: "About", cssPath: "main > a.about" },
+  ],
+  itemUrlPatterns: ["/news/:story"],
   paginationUrls: ["https://site.com/news?page=2"],
   linkGroups: [{ urlPattern: "/news/:slug", count: 1, samples: ["https://site.com/news/rolex-daytona"] }],
   llmUsed: false,
@@ -167,7 +171,10 @@ describe("createCrawler", () => {
     expect(result).toMatchObject({
       ok: true,
       schemaVersion: 1,
-      itemUrls: [{ url: "https://site.com/news/rolex-daytona", text: "B", urlPattern: "/news/:slug", cssPath: "main > a.card" }],
+      itemUrls: [
+        { url: "https://site.com/news/rolex-daytona", text: "B", urlPattern: "/news/:story", cssPath: "main > a.card" },
+        { url: "https://site.com/about", text: "About", urlPattern: "/about", cssPath: "main > a.about" },
+      ],
       paginationUrls: ["https://site.com/news?page=2"],
       patterns: index.linkGroups,
     });

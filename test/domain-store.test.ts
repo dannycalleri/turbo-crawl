@@ -17,6 +17,7 @@ import {
   readJsonFile,
   savePageArtifacts,
   saveTemplate,
+  schemasMatch,
   writeJsonFile,
 } from "../src/core/domain-store.ts";
 import type { CompactPagePacket } from "../src/core/compactPagePacket.ts";
@@ -258,9 +259,13 @@ describe("domain store foundational helpers", () => {
 
     const all = (await listTemplatesForDomain(store)).candidates.map(candidate => candidate.template.id);
     expect(all.sort()).toEqual([article.id, template.id].sort());
-    expect((await listTemplatesForDomain(store, { fields: { title: "string" } })).candidates).toHaveLength(2);
-    expect((await listTemplatesForDomain(store, { fields: { title: "text" } })).candidates).toHaveLength(0);
-    expect((await listTemplatesForDomain(store, { fields: { price: "number" } })).candidates).toHaveLength(0);
+  });
+
+  it("matches a template schema only to the same field names and types", () => {
+    expect(schemasMatch({ title: "string" }, { title: "string" })).toBe(true);
+    expect(schemasMatch({ title: "string" }, { title: "text" })).toBe(false);
+    expect(schemasMatch({ title: "string" }, { price: "number" })).toBe(false);
+    expect(schemasMatch({ title: "string", price: "number" }, { price: "number", title: "string" })).toBe(true);
   });
 
   it("adds a URL pattern by rewriting the same file, once per pattern", async () => {

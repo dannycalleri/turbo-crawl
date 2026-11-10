@@ -211,14 +211,9 @@ function isListingTemplate(value: unknown): value is ListingTemplate {
   );
 }
 
-export async function listTemplatesForDomain(
-  store: DomainStore,
-  options: { fields?: UserSchema } = {},
-): Promise<ReuseDiscoveryResult<TemplateMatchCandidate>> {
-  return readTemplateArtifacts(store.templatesPath, "template", (value, artifactPath, warnings) => {
-    const template = validateTemplateArtifact(value, store, artifactPath, warnings);
-    return template && (!options.fields || schemasMatch(template.schema, options.fields)) ? template : null;
-  });
+export async function listTemplatesForDomain(store: DomainStore): Promise<ReuseDiscoveryResult<TemplateMatchCandidate>> {
+  return readTemplateArtifacts(store.templatesPath, "template", (value, artifactPath, warnings) =>
+    validateTemplateArtifact(value, store, artifactPath, warnings));
 }
 
 async function readTemplateArtifacts<T>(
@@ -419,7 +414,7 @@ function hashStorageKey(input: string): string {
   return createHash("sha256").update(input).digest("hex").slice(0, HASH_LENGTH);
 }
 
-function schemasMatch(
+export function schemasMatch(
   templateSchema: Record<string, FieldType>,
   userSchema: UserSchema,
 ): boolean {
