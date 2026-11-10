@@ -494,14 +494,14 @@ describe("listing pages", () => {
     expect(outcome).toMatchObject({ kind: "listing", ...links, templateFit: { templatePath: saved.path } });
   });
 
-  it("never gives the listing result on a URL that matches a listing's item pattern", async () => {
+  it("never gives the listing result on a URL that matches a listing's item pattern, and does not ask for the page kind", async () => {
     const harness = await createHarness({ listingLinks: () => links });
     await saveListingTemplate(harness.store, { ...listingTemplate, urlPatterns: ["/category/:slug"], itemUrlPatterns: ["/:page"] });
 
     const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
 
     expect(outcome).toMatchObject({ kind: "item", path: "authored" });
-    expect(harness.classifyCalls).toHaveLength(1);
+    expect(harness.classifyCalls).toHaveLength(0);
   });
 
   it("picks the newest of two listing templates that fit on a new pattern", async () => {

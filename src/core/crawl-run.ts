@@ -335,8 +335,9 @@ export async function startCrawl(
     const skeleton = await deps.capturePageSkeleton(page);
     const timeoutMs = resolveLlmTimeoutMs();
 
-    const groups = input.expect === "detail" ? [] : await deps.summarizeLinkGroups(page);
-    const classification: PageClassification = input.expect !== "detail"
+    const askPageKind = input.expect !== "detail" && !isItemPage;
+    const groups = askPageKind ? await deps.summarizeLinkGroups(page) : [];
+    const classification: PageClassification = askPageKind
       ? await deps.classifyPage({
           page,
           pagePacket,
