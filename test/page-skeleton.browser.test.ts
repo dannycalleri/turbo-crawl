@@ -70,6 +70,18 @@ describe("capturePageSkeleton", () => {
     expect(skeleton.text).toContain("+37 more");
   });
 
+  it("describes a form that holds an input named id by its id attribute", async () => {
+    if (!page) {
+      expect(browserLaunchError).toBeTruthy();
+      return;
+    }
+    await page.setContent(`<form id="cart" class="cart-form"><input name="id" value="42"><button>Add to cart</button></form>`);
+
+    const skeleton = await capturePageSkeleton(page, 120_000);
+
+    expect(skeleton.text).toContain("form#cart.cart-form");
+  });
+
   it("stays within a tiny byte budget and says it was truncated", async () => {
     if (!page) {
       expect(browserLaunchError).toBeTruthy();
