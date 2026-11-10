@@ -19,7 +19,6 @@ import {
 import { suggestSchema } from "./template-author/suggestSchema.ts";
 import {
   classifyPage,
-  looksLikeListing,
   type ClassifyPageInput,
   type PageClassification,
 } from "./template-author/classifyPage.ts";
@@ -232,7 +231,9 @@ export async function startCrawl(
     const listingCandidates = input.listingTemplatePath
       ? savedListings.candidates.filter(candidate => candidate.path === input.listingTemplatePath)
       : savedListings.candidates;
-    const listingFit = await findListingFit(page, listingCandidates, finalUrl, deps);
+    const isItemPage = domainListings.candidates.some(candidate =>
+      candidate.template.itemUrlPatterns.some(pattern => urlMatchesPattern(finalUrl, pattern)));
+    const listingFit = isItemPage ? null : await findListingFit(page, listingCandidates, finalUrl, deps);
     const listingOutcome = async ({ candidate, links, matchedPattern }: ListingFit): Promise<ListingOutcome> => {
       if (!matchedPattern) await deps.addPatternToTemplate(candidate.path, finalUrl);
       progress(`Read the links with the saved listing template ${candidate.path}.`);
@@ -274,7 +275,7 @@ export async function startCrawl(
       );
     }
 
-    if (listingFit && decision.kind === "none") {
+    if (listingFit && (decision.kind !== "fit" || !decision.matchedPattern)) {
       return listingOutcome(listingFit);
     }
 
@@ -335,7 +336,7 @@ export async function startCrawl(
     const timeoutMs = resolveLlmTimeoutMs();
 
     const groups = input.expect === "detail" ? [] : await deps.summarizeLinkGroups(page);
-    const classification: PageClassification = input.expect === "listing" || (input.expect !== "detail" && looksLikeListing(groups, finalUrl))
+    const classification: PageClassification = input.expect !== "detail"
       ? await deps.classifyPage({
           page,
           pagePacket,

@@ -86,6 +86,11 @@ const classifyEnvelope = {
   },
 };
 
+const detailEnvelope = {
+  ...claudeEnvelope,
+  structured_output: { pageKind: "detail", itemLinks: [], nextPage: [], pageLinks: [], pageUrlPattern: "", itemUrlPattern: "" },
+};
+
 type RunResult = { code: number | null; stdout: string; stderr: string };
 
 function runCli(args: string[], env: NodeJS.ProcessEnv, cwd: string): Promise<RunResult> {
@@ -135,16 +140,19 @@ describe("turbo-crawl CLI end to end", () => {
     counterFile = path.join(workDir, "claude-calls.txt");
     const envelopeFile = path.join(workDir, "envelope.json");
     const classifyFile = path.join(workDir, "classify.json");
+    const detailFile = path.join(workDir, "detail.json");
     await mkdir(binDir, { recursive: true });
     await writeFile(envelopeFile, JSON.stringify(claudeEnvelope), "utf8");
     await writeFile(classifyFile, JSON.stringify(classifyEnvelope), "utf8");
+    await writeFile(detailFile, JSON.stringify(detailEnvelope), "utf8");
     await writeFile(
       path.join(binDir, "claude"),
       [
         "#!/bin/sh",
         'prompt=$(cat)',
         `echo call >> "${counterFile}"`,
-        `case "$prompt" in *"listing or a detail page"*) cat "${classifyFile}" ;; *) cat "${envelopeFile}" ;; esac`,
+        `case "$prompt" in *"listing or a detail page"*) ;; *) cat "${envelopeFile}"; exit 0 ;; esac`,
+        `if printf '%s' "$prompt" | grep -q '^URL: .*/category/'; then cat "${classifyFile}"; else cat "${detailFile}"; fi`,
         "",
       ].join("\n"),
       "utf8",
@@ -223,7 +231,7 @@ describe("turbo-crawl CLI end to end", () => {
       expect(JSON.parse(unknownLayout.stdout)).toMatchObject({ ok: false, code: "TEMPLATE_MISSING" });
 
       const calls = (await readFile(counterFile, "utf8")).trim().split("\n");
-      expect(calls).toHaveLength(1);
+      expect(calls).toHaveLength(2);
       expect(new Set(userAgents)).toEqual(new Set(["E2EBot/1.0"]));
     },
     60_000,

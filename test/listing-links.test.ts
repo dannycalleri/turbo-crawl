@@ -1,6 +1,4 @@
 import { describe, expect, it } from "bun:test";
-import { groupLinks } from "../src/core/extraction/links.ts";
-import { looksLikeListing } from "../src/core/template-author/classifyPage.ts";
 import {
   buildClassifyMessages,
   buildClassifyResponseSchema,
@@ -12,18 +10,6 @@ import { itemLinksFit } from "../src/core/template-author/validateListingSelecto
 
 const page = "https://shop.test/category/clocks";
 const products = (count: number) => Array.from({ length: count }, (_, i) => `https://shop.test/products/clock-${i + 1}`);
-
-describe("looksLikeListing", () => {
-  it("needs a group of 4 links on this host with a pattern other than the page's", () => {
-    expect(looksLikeListing(groupLinks(products(4), page), page)).toBe(true);
-    expect(looksLikeListing(groupLinks(products(3), page), page)).toBe(false);
-    expect(looksLikeListing(groupLinks(products(4).map(url => url.replace("shop.test", "cdn.test")), page), page)).toBe(false);
-  });
-
-  it("ignores links that share the page's own pattern, such as related products on a product page", () => {
-    expect(looksLikeListing(groupLinks(products(6), "https://shop.test/products/clock-9"), "https://shop.test/products/clock-9")).toBe(false);
-  });
-});
 
 describe("itemLinksFit", () => {
   it("fits 2 or more same-host links that match an item pattern, and keeps only those", () => {
