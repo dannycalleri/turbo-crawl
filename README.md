@@ -148,7 +148,7 @@ The [reference](docs/reference.md#how-it-works) has the details of each step.
 
 ## Documentation
 
-- [Reference](docs/reference.md): every CLI option, exit codes, listing pages, how a template is chosen, URL patterns, user agent, robots.txt, environment variables, the library API and the data layout.
+- [Reference](docs/reference.md): every CLI option, exit codes, listing pages, how turbo-crawl selects a template, URL patterns, user agent, robots.txt, environment variables, the library API and the data layout.
 - [Upgrading](docs/upgrading.md): what changed in 0.2 and 0.4.
 - [Changelog](CHANGELOG.md).
 
