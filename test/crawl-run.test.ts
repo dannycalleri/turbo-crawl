@@ -442,7 +442,7 @@ describe("listing pages", () => {
     expect(outcome).toMatchObject({ kind: "item", path: "template-reuse" });
   });
 
-  it("keeps a stale field template that knows the URL pattern over a listing template that fits on a new pattern", async () => {
+  it("gives the listing result, not a stale one, when a field template that knows the page no longer fits and a listing fits", async () => {
     const harness = await createHarness({
       listingLinks: () => links,
       extractResult: createTemplateExtractionResult({
@@ -452,12 +452,43 @@ describe("listing pages", () => {
         },
       }),
     });
-    await saveTemplate(harness.store, createTemplate());
+    await saveTemplate(harness.store, { ...createTemplate(), urlPatterns: ["/:page"] });
     await saveListingTemplate(harness.store, { ...listingTemplate, urlPatterns: ["/category/:slug"] });
 
     const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
 
-    expect(outcome).toMatchObject({ kind: "item", stale: true });
+    expect(outcome).toMatchObject({ kind: "listing", ...links });
+  });
+
+  it("gives the listing result over a field template that fits without knowing the page, when the one that knows it is stale", async () => {
+    const stale = createTemplateExtractionResult({
+      payload: { title: null },
+      fieldResults: {
+        title: { fieldName: "title", type: "string", rawValue: null, normalizedValue: null, selectorUsed: null, confidence: 0, warnings: [], candidatesTried: [] },
+      },
+    });
+    const harness = await createHarness({
+      listingLinks: () => links,
+      extractResultFor: template => (template.id === "template_knows" ? stale : undefined),
+    });
+    await saveTemplate(harness.store, { ...createTemplate({ id: "template_knows" }), urlPatterns: ["/:page"] });
+    const firstCard = await saveTemplate(harness.store, { ...createTemplate({ id: "template_first_card" }), urlPatterns: ["/news/:slug"] });
+    await saveListingTemplate(harness.store, { ...listingTemplate, urlPatterns: ["/category/:slug"] });
+
+    const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
+
+    expect(outcome).toMatchObject({ kind: "listing", ...links });
+    expect((await readJsonFile<ExtractionTemplate>(firstCard.path)).urlPatterns).toEqual(["/news/:slug"]);
+  });
+
+  it("never gives the listing result on a URL that matches a listing's item pattern", async () => {
+    const harness = await createHarness({ listingLinks: () => links });
+    await saveListingTemplate(harness.store, { ...listingTemplate, urlPatterns: ["/category/:slug"], itemUrlPatterns: ["/:page"] });
+
+    const outcome = await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
+
+    expect(outcome).toMatchObject({ kind: "item", path: "authored" });
+    expect(harness.classifyCalls).toHaveLength(1);
   });
 
   it("picks the newest of two listing templates that fit on a new pattern", async () => {
@@ -549,10 +580,19 @@ describe("listing pages", () => {
     expect(harness.providerResolutions).toBe(1);
   });
 
-  it("does not ask the agent for the page kind when no link group could hold the items", async () => {
-    const harness = await createHarness({ linkGroups: [{ ...productGroup, count: 3 }] });
+  it("asks the agent for the page kind even when the page has no link group", async () => {
+    const harness = await createHarness({ linkGroups: [] });
 
     await startCrawl(fieldsInput({ title: "string" }), harness.options, harness.deps);
+
+    expect(harness.classifyCalls).toHaveLength(1);
+    expect(harness.authorCalls).toHaveLength(1);
+  });
+
+  it("does not ask the agent for the page kind when the caller expects a detail page", async () => {
+    const harness = await createHarness();
+
+    await startCrawl({ ...fieldsInput({ title: "string" }), expect: "detail" }, harness.options, harness.deps);
 
     expect(harness.classifyCalls).toHaveLength(0);
     expect(harness.authorCalls).toHaveLength(1);
@@ -575,6 +615,7 @@ async function createHarness(config: {
   renderError?: Error;
   robots?: Record<string, RobotsStatus>;
   extractResult?: TemplateExtractionResult;
+  extractResultFor?: (template: ExtractionTemplate) => TemplateExtractionResult | undefined;
   linkGroups?: LinkGroup[];
   classification?: PageClassification;
   listingLinks?: (template: ListingTemplate) => ListingLinks | null;
@@ -632,8 +673,8 @@ async function createHarness(config: {
     async readListingLinks(_page, template) {
       return config.listingLinks?.(template) ?? null;
     },
-    async extractWithTemplate() {
-      return config.extractResult ?? createTemplateExtractionResult();
+    async extractWithTemplate({ template }) {
+      return config.extractResultFor?.(template) ?? config.extractResult ?? createTemplateExtractionResult();
     },
   };
 

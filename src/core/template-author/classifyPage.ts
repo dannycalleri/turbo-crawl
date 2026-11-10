@@ -26,8 +26,6 @@ import {
     type ListingLinks,
 } from "./validateListingSelectors";
 
-export const MIN_LINK_GROUP = 4;
-
 export type ListingAgentCall = {
     round: number;
     messages: ChatMessage[];
@@ -57,11 +55,6 @@ export type ClassifyPageInput = {
     now?: () => Date;
     onProgress?: (message: string) => void;
 };
-
-export function looksLikeListing(groups: LinkGroup[], pageUrl: string): boolean {
-    const pagePattern = inferUrlPattern(pageUrl);
-    return groups.some(group => group.count >= MIN_LINK_GROUP && group.urlPattern !== pagePattern);
-}
 
 export async function classifyPage(input: ClassifyPageInput): Promise<PageClassification> {
     const finalUrl = input.pagePacket.finalUrl || input.pagePacket.url;
