@@ -3,7 +3,7 @@ type CompiledPattern = {
     query: Array<{ key: string; value: RegExp }>;
 };
 
-const PLACEHOLDER = /:([a-z][a-z0-9_]*)/g;
+const PLACEHOLDER = /:([a-z][a-z0-9]*(?:_[a-z0-9]+)*)/g;
 
 export function isValidPattern(pattern: string): boolean {
     return compilePattern(pattern) !== null;
