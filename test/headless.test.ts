@@ -331,7 +331,7 @@ describe("runHeadlessCrawl", () => {
     });
 
     expect(await runHeadlessCrawl({ target, fields: "title:string" }, h.deps)).toBe(EXIT_RUNTIME);
-    expect(h.stderr).toContain("npx playwright install chromium");
+    expect(h.stderr).toContain("npx playwright install --only-shell chromium");
   });
 
   it("names the --with-deps fix when Chromium cannot start for missing system libraries", async () => {
@@ -342,7 +342,7 @@ describe("runHeadlessCrawl", () => {
     });
 
     expect(await runHeadlessCrawl({ target, fields: "title:string" }, h.deps)).toBe(EXIT_RUNTIME);
-    expect(h.stderr).toContain("npx playwright install --with-deps chromium");
+    expect(h.stderr).toContain("npx playwright install --with-deps --only-shell chromium");
   });
 
   it("prints the data, per-field details and llmUsed as JSON", async () => {

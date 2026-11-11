@@ -190,20 +190,20 @@ turbo-crawl only reports the TDM signals. It does not obey them for you. You dec
 turbo-crawl renders each page in Chromium for Playwright. When Chromium is missing, turbo-crawl downloads it one time and then continues:
 
 1. turbo-crawl writes "Chromium for Playwright is not installed. Downloading it (one time)…" to stderr.
-2. Playwright downloads the Chromium version that matches the installed `playwright` package. The download is about 165 MB.
+2. Playwright downloads Chromium Headless Shell, in the version that matches the installed `playwright` package. The download is about 100 MB.
 3. Playwright shows the progress on stderr. On a terminal, it shows a progress bar. In other cases, it writes one line for each 10%.
 4. turbo-crawl starts Chromium and continues the crawl.
 
 The progress never goes to stdout. Thus the JSON result on stdout stays valid.
 
-When the download fails, the crawl stops with an error. Run `npx playwright install --with-deps chromium`, then try again.
+When the download fails, the crawl stops with an error. Run `npx playwright install --with-deps --only-shell chromium`, then try again.
 
 ### In CI
 
 CI also gets Chromium with this download. Two items need attention:
 
 - **Cache the download.** Without a cache, each CI run downloads Chromium again. Playwright keeps the browsers in `~/.cache/ms-playwright` on Linux, `~/Library/Caches/ms-playwright` on macOS and `%USERPROFILE%\AppData\Local\ms-playwright` on Windows. Cache this folder, with the `playwright` version in the cache key.
-- **Install the system libraries.** On Linux, Chromium needs some system libraries. The GitHub `ubuntu-latest` runners have most of them. On a minimal image, run `npx playwright install --with-deps chromium` before the crawl. This command needs root. You can also use the official Playwright Docker image. When the libraries are missing, the crawl stops with an error that gives this command.
+- **Install the system libraries.** On Linux, Chromium needs some system libraries. The GitHub `ubuntu-latest` runners have most of them. On a minimal image, run `npx playwright install --with-deps --only-shell chromium` before the crawl. This command needs root. You can also use the official Playwright Docker image. When the libraries are missing, the crawl stops with an error that gives this command.
 
 Example for GitHub Actions. The project lists `@fragmentoid/turbo-crawl` and `playwright` in `package.json`. Thus `package-lock.json` sets the `playwright` version, and the cache key changes when that version changes.
 

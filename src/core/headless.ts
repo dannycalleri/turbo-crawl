@@ -211,10 +211,10 @@ export function describeRuntimeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
 
   if (/Host system is missing dependencies/i.test(message)) {
-    return "Chromium cannot start because system libraries are missing. Run `npx playwright install --with-deps chromium` and try again.";
+    return "Chromium cannot start because system libraries are missing. Run `npx playwright install --with-deps --only-shell chromium` and try again.";
   }
   if (isMissingExecutableError(error)) {
-    return "Chromium for Playwright is not installed. Run `npx playwright install chromium` and try again.";
+    return "Chromium for Playwright is not installed. Run `npx playwright install --only-shell chromium` and try again.";
   }
 
   return message;
