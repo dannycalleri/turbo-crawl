@@ -51,6 +51,6 @@ jobs:
       # Trusted publishing needs npm 11.5.1 or later; Node 22 ships npm 10.
       - run: npm install --global npm@^11.5.1
       - run: bun install
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps --only-shell chromium
       # prepublishOnly runs typecheck, tests and build before the upload.
       - run: npm publish --access public

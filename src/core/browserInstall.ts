@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -11,7 +11,7 @@ export type LaunchChromiumDependencies = {
 
 const defaultDependencies: LaunchChromiumDependencies = {
   launch: () => chromium.launch({ headless: true }),
-  install: installChromium,
+  install: () => installChromium(),
   log: message => process.stderr.write(`${message}\n`),
 };
 
@@ -33,18 +33,18 @@ export function isMissingExecutableError(error: unknown): boolean {
 
 // Runs the CLI of the installed playwright package, so the browser matches the version that launches it.
 // Its output goes to stderr: stdout carries the crawl's JSON. Playwright draws a progress bar on a terminal.
-async function installChromium(): Promise<void> {
+export async function installChromium(spawnProcess: typeof spawn = spawn): Promise<void> {
   const require = createRequire(import.meta.url);
   const packagePath = require.resolve("playwright/package.json");
   const { bin } = require(packagePath) as { bin: { playwright: string } };
   const cli = path.join(path.dirname(packagePath), bin.playwright);
 
   const exitCode = await new Promise<number | null>((resolve, reject) => {
-    const child = spawn(process.execPath, [cli, "install", "chromium"], { stdio: ["ignore", 2, 2] });
+    const child: ChildProcess = spawnProcess(process.execPath, [cli, "install", "--only-shell", "chromium"], { stdio: ["ignore", 2, 2] });
     child.once("error", reject);
     child.once("exit", resolve);
   });
   if (exitCode !== 0) {
-    throw new Error(`The Chromium download failed (exit code ${exitCode}). Run \`npx playwright install --with-deps chromium\` and try again.`);
+    throw new Error(`The Chromium download failed (exit code ${exitCode}). Run \`npx playwright install --with-deps --only-shell chromium\` and try again.`);
   }
 }
