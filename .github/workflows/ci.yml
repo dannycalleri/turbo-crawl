@@ -47,7 +47,8 @@ jobs:
 
   playwright-minimum:
     needs: test
-    runs-on: ubuntu-latest
+    # Playwright 1.60 predates Ubuntu 26.04 and refuses to install there.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
