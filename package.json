@@ -1,6 +1,6 @@
 {
   "name": "@fragmentoid/turbo-crawl",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Turn any web page into structured JSON. Claude Code or Codex writes a reusable extraction template once per page layout; every other page with that layout is scraped without calling a model. Also a Node library.",
   "keywords": [
     "scraper",
