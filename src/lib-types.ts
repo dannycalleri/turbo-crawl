@@ -42,6 +42,8 @@ export type LLMRequest = {
   maxTokens?: number;
   /** From TURBO_CRAWL_LLM_TIMEOUT_MS. The default is 600000. */
   timeoutMs: number;
+  /** Aborted when timeoutMs passes. Pass it to your client to stop the request. */
+  signal: AbortSignal;
 };
 
 export type LLMResponse = {
