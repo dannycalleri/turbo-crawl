@@ -156,16 +156,36 @@ export function createCrawler(
 const DEFAULT_MAX_CONCURRENT_PAGES = 4;
 
 function adaptProvider(provider: LLMProvider, model: string | null): InternalProvider {
+  const name = typeof provider.name === "string" && provider.name.trim() !== "" ? provider.name : "custom";
   return {
-    name: typeof provider.name === "string" && provider.name.trim() !== "" ? provider.name : "custom",
-    completeStructured: request => provider.completeStructured({
-      model,
-      messages: request.messages,
-      jsonSchema: request.jsonSchema,
-      temperature: request.temperature,
-      maxTokens: request.maxTokens,
-      timeoutMs: request.timeoutMs ?? resolveLlmTimeoutMs(),
-    }),
+    name,
+    async completeStructured(request) {
+      const timeoutMs = request.timeoutMs ?? resolveLlmTimeoutMs();
+      const controller = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timedOut = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new Error(`${name}: no answer after ${timeoutMs}ms; the request was aborted. Raise TURBO_CRAWL_LLM_TIMEOUT_MS to wait longer.`));
+        }, timeoutMs);
+      });
+      try {
+        return await Promise.race([
+          provider.completeStructured({
+            model,
+            messages: request.messages,
+            jsonSchema: request.jsonSchema,
+            temperature: request.temperature,
+            maxTokens: request.maxTokens,
+            timeoutMs,
+            signal: controller.signal,
+          }),
+          timedOut,
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
   };
 }
 

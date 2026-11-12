@@ -263,6 +263,37 @@ describe("provider option", () => {
     expect(f.providerResolutions).toBe(0);
   });
 
+  it("aborts the signal and rejects with the timeout when the object does not answer in time", async () => {
+    const f = fakes(async () => article);
+    let signal: AbortSignal | null = null;
+    const hanging: LLMProvider = {
+      name: "gateway",
+      completeStructured: request => {
+        signal = request.signal;
+        return new Promise(() => {});
+      },
+    };
+    createCrawler({ ...options, authoring: "allowed", provider: hanging }, f.deps);
+    const agent = (f.runnerOptions[0]!.provider as () => InternalProvider)();
+
+    const call = agent.completeStructured({ ...agentRequest, timeoutMs: 20 });
+
+    await expect(call).rejects.toThrow("gateway: no answer after 20ms; the request was aborted. Raise TURBO_CRAWL_LLM_TIMEOUT_MS to wait longer.");
+    expect(signal!.aborted).toBe(true);
+  });
+
+  it("does not abort the signal of a call that answers in time", async () => {
+    const f = fakes(async () => article);
+    const caller = callerProvider();
+    createCrawler({ ...options, authoring: "allowed", provider: caller.provider }, f.deps);
+    const agent = (f.runnerOptions[0]!.provider as () => InternalProvider)();
+
+    await agent.completeStructured({ ...agentRequest, timeoutMs: 20 });
+    await new Promise(resolve => setTimeout(resolve, 40));
+
+    expect(caller.requests[0]!.signal.aborted).toBe(false);
+  });
+
   it("throws for a provider without completeStructured, or an empty model", () => {
     const { deps } = fakes(async () => article);
 
