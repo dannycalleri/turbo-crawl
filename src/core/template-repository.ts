@@ -10,6 +10,7 @@ import {
   type TemplateMatchCandidate,
 } from "./domain-store.ts";
 import type { ExtractionTemplate, ListingTemplate } from "./templating/types.ts";
+import type { StartCrawlDependencies } from "./crawl-run.ts";
 
 // Where crawl-run reads and writes templates. The path of a candidate is the template's ref.
 export type TemplateRepository = {
@@ -21,22 +22,20 @@ export type TemplateRepository = {
   addListingPattern(ref: string, url: string): Promise<void>;
 };
 
-export type FileTemplateFunctions = {
-  listTemplatesForDomain(store: DomainStore): Promise<ReuseDiscoveryResult<TemplateMatchCandidate>>;
-  listListingTemplates(store: DomainStore): Promise<ReuseDiscoveryResult<ListingTemplateArtifact>>;
-  saveTemplate(store: DomainStore, template: ExtractionTemplate): Promise<{ path: string }>;
-  saveListingTemplate(store: DomainStore, template: ListingTemplate): Promise<{ path: string }>;
-  addPatternToTemplate(templatePath: string, url: string): Promise<void>;
-};
+type FileTemplateFunctions = Pick<
+  StartCrawlDependencies,
+  "listTemplatesForDomain" | "listListingTemplates" | "saveTemplate" | "saveListingTemplate" | "addPatternToTemplate"
+>;
 
 export function fileTemplateRepository(store: DomainStore, files: FileTemplateFunctions): TemplateRepository {
+  const addPattern = (ref: string, url: string) => files.addPatternToTemplate(ref, url);
   return {
     listTemplates: () => files.listTemplatesForDomain(store),
     listListingTemplates: () => files.listListingTemplates(store),
     saveTemplate: async template => (await files.saveTemplate(store, template)).path,
     saveListingTemplate: async template => (await files.saveListingTemplate(store, template)).path,
-    addPattern: (ref, url) => files.addPatternToTemplate(ref, url),
-    addListingPattern: (ref, url) => files.addPatternToTemplate(ref, url),
+    addPattern,
+    addListingPattern: addPattern,
   };
 }
 
