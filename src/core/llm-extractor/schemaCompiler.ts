@@ -78,6 +78,9 @@ function zodForFieldType(type: FieldType): z.ZodTypeAny {
        */
       return z.string().max(MAX_PAYLOAD_URL_LENGTH).nullable();
 
+    case "pairs":
+      return z.record(z.string(), z.string().max(MAX_PAYLOAD_STRING_LENGTH)).nullable();
+
     default:
       return z.null();
   }

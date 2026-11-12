@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { LLMProvider } from "../src/core/llm-extractor/providers/LLMProvider.ts";
 import {
+  buildSuggestionResponseSchema,
   filterSuggestedFields,
   MAX_SUGGESTED_FIELDS,
   suggestSchema,
@@ -60,6 +61,18 @@ describe("filterSuggestedFields", () => {
       { name: "title", type: "string", description: "Product name" },
       { name: "in_stock", type: "boolean", description: "" },
     ]);
+  });
+
+  it("drops a suggested pairs field, which only the caller may ask for", () => {
+    const fields = filterSuggestedFields({
+      fields: [
+        { name: "specs", type: "pairs", description: "" },
+        { name: "price", type: "number", description: "" },
+      ],
+    });
+
+    expect(fields).toEqual([{ name: "price", type: "number", description: "" }]);
+    expect(JSON.stringify(buildSuggestionResponseSchema())).not.toContain("pairs");
   });
 
   it(`keeps at most ${MAX_SUGGESTED_FIELDS} fields`, () => {

@@ -15,6 +15,7 @@ export function inferValueShape(input: {
         return "number";
     }
 
+    if (fieldType === "pairs") return "pairs";
     if (fieldType === "boolean") return "boolean";
     if (fieldType === "date") return "date";
     if (fieldType === "url") return "url";

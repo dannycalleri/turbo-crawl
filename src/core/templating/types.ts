@@ -28,7 +28,7 @@ export type FieldTemplate = {
 
     validation: {
         expectedType: FieldType;
-        valueShape: "empty" | "text" | "longText" | "number" | "currency" | "boolean" | "date" | "url";
+        valueShape: "empty" | "text" | "longText" | "number" | "currency" | "boolean" | "date" | "url" | "pairs";
     };
 };
 

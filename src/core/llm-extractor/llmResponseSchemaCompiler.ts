@@ -106,6 +106,12 @@ function jsonSchemaForFieldType(type: FieldType) {
                 type: "string",
                 maxLength: MAX_PAYLOAD_URL_LENGTH,
             });
+
+        case "pairs":
+            return nullableJsonSchema({
+                type: "object",
+                additionalProperties: { type: "string", maxLength: MAX_PAYLOAD_STRING_LENGTH },
+            });
     }
 }
 

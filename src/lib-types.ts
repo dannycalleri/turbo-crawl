@@ -1,7 +1,8 @@
 // The public types of the library. This file is published as dist/lib.d.ts, so it
 // must not import anything.
 
-export type FieldType = "string" | "number" | "boolean" | "date" | "url" | "text";
+/** A `pairs` field reads every label/value row of one container, e.g. a spec table, as `{ label: value }`. */
+export type FieldType = "string" | "number" | "boolean" | "date" | "url" | "text" | "pairs";
 
 export type CrawlerOptions = {
   /** Root folder of the saved templates, e.g. a folder committed to your repository. */

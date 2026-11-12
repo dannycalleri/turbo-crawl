@@ -7,6 +7,7 @@ import { formatPageContext } from "./authorPrompt";
 
 export const MAX_SUGGESTED_FIELDS = 12;
 const FIELD_NAME_PATTERN = /^[a-z][a-z0-9_]{0,39}$/;
+const SUGGESTED_FIELD_TYPES = FIELD_TYPES.filter(type => type !== "pairs");
 
 export type SuggestedField = {
     name: string;
@@ -32,7 +33,7 @@ export function buildSuggestionResponseSchema(): unknown {
                     type: "object",
                     properties: {
                         name: { type: "string" },
-                        type: { type: "string", enum: [...FIELD_TYPES] },
+                        type: { type: "string", enum: SUGGESTED_FIELD_TYPES },
                         description: { type: "string" },
                     },
                     required: ["name", "type", "description"],
@@ -57,7 +58,7 @@ export function filterSuggestedFields(raw: unknown): SuggestedField[] {
     for (const field of parsed.data.fields) {
         if (typeof field.name !== "string" || typeof field.type !== "string") continue;
         if (!FIELD_NAME_PATTERN.test(field.name) || seen.has(field.name)) continue;
-        if (!(FIELD_TYPES as readonly string[]).includes(field.type)) continue;
+        if (!(SUGGESTED_FIELD_TYPES as readonly string[]).includes(field.type)) continue;
 
         seen.add(field.name);
         fields.push({
