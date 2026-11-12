@@ -19,7 +19,8 @@ export type StructuredLLMResponse = {
 };
 
 export interface LLMProvider {
-    name: ProviderName;
+    /** A CLI provider's ProviderName, or the name of a library caller's provider object. */
+    name: string;
 
     completeStructured(
         request: StructuredLLMRequest

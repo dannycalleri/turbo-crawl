@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import type { CrawlOptions, CrawlOutcome, CrawlStartInput, ItemOutcome, ListingOutcome } from "../src/core/crawl-run.ts";
 import { CrawlFailure, type CrawlFailureCode, type PolicyInfo } from "../src/core/policy/policy.ts";
-import { createCrawler, type CrawlerOptions, type LibraryDependencies } from "../src/lib.ts";
+import { createCrawler, type CrawlerOptions, type LibraryDependencies, type LLMProvider, type LLMRequest } from "../src/lib.ts";
+import type { LLMProvider as InternalProvider } from "../src/core/llm-extractor/providers/LLMProvider.ts";
 import { createCrawlRunner, defaultStartCrawlDependencies } from "../src/core/crawl-run.ts";
 import { createRobotsChecker, type RobotsFetch } from "../src/core/policy/robots.ts";
 import type { PagePacket } from "../src/core/types.ts";
@@ -205,6 +206,68 @@ describe("createCrawler", () => {
         ...(code === "AMBIGUOUS_TEMPLATE" ? { templatePaths: ["a.json", "b.json"] } : {}),
       });
     }
+  });
+});
+
+describe("provider option", () => {
+  function callerProvider() {
+    const requests: LLMRequest[] = [];
+    const provider: LLMProvider = {
+      name: "gateway",
+      async completeStructured(request) {
+        requests.push(request);
+        return { parsed: { ok: true }, raw: "raw answer" };
+      },
+    };
+    return { provider, requests };
+  }
+  const agentRequest = { model: "", messages: [{ role: "user" as const, content: "Write a template" }], jsonSchema: { type: "object" }, timeoutMs: 1234 };
+
+  it("sends every agent call to the caller's object with the model option, and starts no CLI agent", async () => {
+    const f = fakes(async () => article);
+    const caller = callerProvider();
+    const crawler = createCrawler({ ...options, authoring: "allowed", provider: caller.provider, model: "anthropic/claude-haiku" }, f.deps);
+    await crawler.extract("https://site.com/news/a");
+    const resolve = f.runnerOptions[0]!.provider as () => InternalProvider;
+
+    const agent = resolve();
+    const answers = [await agent.completeStructured(agentRequest), await agent.completeStructured({ ...agentRequest, model: "other" })];
+
+    expect(agent.name).toBe("gateway");
+    expect(f.runnerOptions[0]!.model).toBe("anthropic/claude-haiku");
+    expect(answers).toEqual([{ parsed: { ok: true }, raw: "raw answer" }, { parsed: { ok: true }, raw: "raw answer" }]);
+    expect(caller.requests.map(request => request.model)).toEqual(["anthropic/claude-haiku", "anthropic/claude-haiku"]);
+    expect(caller.requests[0]).toMatchObject({ messages: agentRequest.messages, jsonSchema: agentRequest.jsonSchema, timeoutMs: 1234 });
+    expect(f.providerResolutions).toBe(0);
+  });
+
+  it("sends a null model when the caller gives none, and names the provider custom", async () => {
+    const f = fakes(async () => article);
+    const caller = callerProvider();
+    createCrawler({ ...options, authoring: "allowed", provider: { completeStructured: caller.provider.completeStructured } }, f.deps);
+    const agent = (f.runnerOptions[0]!.provider as () => InternalProvider)();
+
+    await agent.completeStructured(agentRequest);
+
+    expect(agent.name).toBe("custom");
+    expect(caller.requests[0]!.model).toBeNull();
+  });
+
+  it("never calls the object when authoring is never", async () => {
+    const f = fakes(async () => article);
+    const caller = callerProvider();
+    createCrawler({ ...options, provider: caller.provider }, f.deps);
+
+    expect(() => (f.runnerOptions[0]!.provider as () => unknown)()).toThrow("authoring is \"never\"");
+    expect(caller.requests).toHaveLength(0);
+    expect(f.providerResolutions).toBe(0);
+  });
+
+  it("throws for a provider without completeStructured, or an empty model", () => {
+    const { deps } = fakes(async () => article);
+
+    expect(() => createCrawler({ ...options, provider: {} as LLMProvider }, deps)).toThrow("options.provider needs a completeStructured(request) function");
+    expect(() => createCrawler({ ...options, provider: callerProvider().provider, model: " " }, deps)).toThrow("options.model");
   });
 });
 

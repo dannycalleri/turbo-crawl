@@ -21,6 +21,40 @@ export type CrawlerOptions = {
   settleTimeoutMs?: number;
   /** Default 4. Further calls wait in first-in-first-out order. */
   maxConcurrentPages?: number;
+  /** Your own model client. turbo-crawl then uses it for every agent call and never starts `claude`, `codex` or LM Studio. */
+  provider?: LLMProvider;
+  /** The model id that turbo-crawl sends to `provider` in each request. */
+  model?: string;
+};
+
+export type LLMMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};
+
+export type LLMRequest = {
+  /** The `model` option of createCrawler, or null. */
+  model: string | null;
+  messages: LLMMessage[];
+  /** The JSON Schema of the answer. */
+  jsonSchema: unknown;
+  temperature?: number;
+  maxTokens?: number;
+  /** From TURBO_CRAWL_LLM_TIMEOUT_MS. The default is 600000. */
+  timeoutMs: number;
+};
+
+export type LLMResponse = {
+  /** The answer as a JSON value. turbo-crawl checks it against the schema of the call. */
+  parsed: unknown;
+  /** Saved in the agent transcript when writeArtifacts is true. */
+  raw: unknown;
+};
+
+export type LLMProvider = {
+  /** Shown in progress messages. The default is "custom". */
+  name?: string;
+  completeStructured(request: LLMRequest): Promise<LLMResponse>;
 };
 
 export type ExtractOptions = {

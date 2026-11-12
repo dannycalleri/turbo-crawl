@@ -6,9 +6,11 @@ import {
   type CrawlOutcome,
   type CrawlRunner,
   type CrawlStartInput,
+  resolveLlmTimeoutMs,
 } from "./core/crawl-run.ts";
 import { FIELD_TYPES, isFieldType } from "./core/llm-extractor/types.ts";
 import { resolveProvider, type ResolvedProvider } from "./core/llm-extractor/providers/resolveProvider.ts";
+import type { LLMProvider as InternalProvider } from "./core/llm-extractor/providers/LLMProvider.ts";
 import { CrawlFailure, failureDetails } from "./core/policy/policy.ts";
 import { createRobotsChecker, type RobotsChecker } from "./core/policy/robots.ts";
 import { inferUrlPattern } from "./core/templating/inferUrlPattern.ts";
@@ -22,6 +24,7 @@ import type {
   ExtractResult,
   FieldType,
   LinksResult,
+  LLMProvider,
 } from "./lib-types.ts";
 
 export type * from "./lib-types.ts";
@@ -76,17 +79,19 @@ export function createCrawler(
     return promise;
   };
   let resolved: ResolvedProvider | null = null;
+  const callerProvider = options.provider ? adaptProvider(options.provider, options.model ?? null) : null;
   const runner = deps.createRunner(
     {
       provider: () => {
         if (options.authoring === "never") {
           throw new Error("authoring is \"never\", so no agent may be started.");
         }
+        if (callerProvider) return callerProvider;
         resolved ??= deps.resolveProvider();
         return resolved.create();
       },
       get model() {
-        return resolved?.model ?? null;
+        return callerProvider ? options.model ?? null : resolved?.model ?? null;
       },
       dataDir: options.dataDir,
       userAgent: options.userAgent,
@@ -149,6 +154,20 @@ export function createCrawler(
 }
 
 const DEFAULT_MAX_CONCURRENT_PAGES = 4;
+
+function adaptProvider(provider: LLMProvider, model: string | null): InternalProvider {
+  return {
+    name: typeof provider.name === "string" && provider.name.trim() !== "" ? provider.name : "custom",
+    completeStructured: request => provider.completeStructured({
+      model,
+      messages: request.messages,
+      jsonSchema: request.jsonSchema,
+      temperature: request.temperature,
+      maxTokens: request.maxTokens,
+      timeoutMs: request.timeoutMs ?? resolveLlmTimeoutMs(),
+    }),
+  };
+}
 
 function createSemaphore(limit: number) {
   let active = 0;
@@ -222,6 +241,12 @@ function validateOptions(options: CrawlerOptions): void {
   }
   if (options.maxConcurrentPages !== undefined && (!Number.isInteger(options.maxConcurrentPages) || options.maxConcurrentPages < 1)) {
     fail("options.maxConcurrentPages must be a whole number of 1 or more.");
+  }
+  if (options.provider !== undefined && typeof (options.provider as { completeStructured?: unknown } | null)?.completeStructured !== "function") {
+    fail("options.provider needs a completeStructured(request) function that resolves to { parsed, raw }.");
+  }
+  if (options.model !== undefined && (typeof options.model !== "string" || options.model.trim() === "")) {
+    fail("options.model must be a non-empty model id.");
   }
   for (const name of ["navigationTimeoutMs", "settleTimeoutMs"] as const) {
     const value = options[name];
