@@ -32,6 +32,7 @@ import type { ListingLinks } from "../src/core/template-author/validateListingSe
 import type { LinkGroup } from "../src/core/extraction/links.ts";
 import type { ClassifyPageInput, PageClassification } from "../src/core/template-author/classifyPage.ts";
 import { memoryStore } from "./fixtures/memory-store.ts";
+import { urlMatchesPattern } from "../src/core/templating/urlPatterns.ts";
 
 const tempDirs: string[] = [];
 
@@ -718,6 +719,26 @@ describe("startCrawl with a caller's template store", () => {
     expect(outcome.templateFit.templatePath).toBe("template:template_fixture");
     expect(memory.tables.templates.has("template:template_fixture")).toBe(true);
     expect(await readdir(harness.store.domainPath).catch(() => [])).toEqual([]);
+  });
+
+  it("keeps both new URL patterns when two pages fit one template at the same time", async () => {
+    const template = createTemplate({ domain: "shop.example", urlPatterns: ["/tudor/:slug--id:id.htm"] });
+    const memory = memoryStore({ templates: { "row-1": template } });
+    const harness = await createHarness();
+    const urls = ["https://shop.example/rolex/submariner--id49535507.htm", "https://shop.example/omega/seamaster--id51234567.htm"];
+    const crawl = (target: string) => startCrawl(
+      { target, schema: { title: "string" }, snapshotHtml: "<h1>Fixture</h1>" },
+      { ...harness.options, store: memory.store, writeArtifacts: false },
+      harness.deps,
+    );
+
+    const outcomes = await Promise.all(urls.map(crawl));
+    const saved = (memory.tables.templates.get("row-1") as ExtractionTemplate).urlPatterns;
+
+    expect(outcomes.map(outcome => outcome.templateFit.matchedPattern)).toEqual([false, false]);
+    expect(memory.calls.filter(call => call === "updateTemplate")).toHaveLength(2);
+    expect(urls.map(url => urlMatchesPattern(url, saved))).toEqual([true, true]);
+    expect(saved[0]).toBe("/tudor/:slug--id:id.htm");
   });
 
   it("ignores an invalid template from the store with a warning that names its ref", async () => {

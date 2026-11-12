@@ -8,6 +8,8 @@ import { createFieldTemplate } from "../src/core/template-author/validateSelecto
 import type { SelectorCandidate } from "../src/core/templating/types.ts";
 import { createCrawler } from "../src/lib.ts";
 import { listingA, listingB } from "./fixtures/shop-listings.ts";
+import { memoryStore } from "./fixtures/memory-store.ts";
+import { urlMatchesPattern } from "../src/core/templating/urlPatterns.ts";
 
 describe("withSnapshotPage", () => {
   let server: ReturnType<typeof Bun.serve>;
@@ -178,6 +180,44 @@ describe("extractHtml on a real browser", () => {
     } finally {
       await crawler.close();
       await rm(specsDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("reads templates from a store with no dataDir, and writes no file", async () => {
+    const workDir = await mkdtemp(path.join(tmpdir(), "turbo-crawl-snapshot-store-"));
+    const css = (selector: string): SelectorCandidate[] => [{ kind: "css", selector, attribute: "textContent", score: 90, reusable: true }];
+    const memory = memoryStore({
+      templates: {
+        "row-1": {
+          id: "template_1111222233334444",
+          domain: "shop.example",
+          urlPatterns: ["/rolex/:slug--id:id.htm"],
+          schema: { price: "number", specs: "pairs" },
+          createdFromUrl: listingA.url,
+          createdAt: "2026-11-12T00:00:00.000Z",
+          fields: {
+            price: createFieldTemplate({ fieldName: "price", type: "number", selectors: css("p.price"), rawValue: null, normalizedValue: null }),
+            specs: createFieldTemplate({ fieldName: "specs", type: "pairs", selectors: css("table.specs"), rawValue: null, normalizedValue: null }),
+          },
+        },
+      },
+    });
+    const previousDir = process.cwd();
+    process.chdir(workDir);
+    let crawler: ReturnType<typeof createCrawler> | null = null;
+
+    try {
+      crawler = createCrawler({ userAgent: "SnapshotBot/1.0", authoring: "never", store: memory.store });
+      const result = await crawler.extractHtml({ ...listingB, require: ["price"] });
+
+      expect(result).toMatchObject({ ok: true, templateFit: { templatePath: "row-1", matchedPattern: false }, data: { price: 4200 } });
+      expect(result.ok && Object.keys(result.data.specs as object)).toHaveLength(5);
+      expect(urlMatchesPattern(listingB.url, (memory.tables.templates.get("row-1") as { urlPatterns: string[] }).urlPatterns)).toBe(true);
+      expect(await readdir(workDir)).toEqual([]);
+    } finally {
+      await crawler?.close();
+      process.chdir(previousDir);
+      await rm(workDir, { recursive: true, force: true });
     }
   }, 60_000);
 
