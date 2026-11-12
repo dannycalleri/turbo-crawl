@@ -25,6 +25,7 @@ import type {
   FieldType,
   LinksResult,
   LLMProvider,
+  TemplateStore,
 } from "./lib-types.ts";
 
 export type * from "./lib-types.ts";
@@ -98,6 +99,7 @@ export function createCrawler(
       robots: options.respectRobots === false ? null : deps.createRobotsChecker(options.userAgent),
       authoring: options.authoring === "allowed",
       writeArtifacts: options.writeArtifacts === true,
+      store: options.store,
     },
     session,
   );
@@ -242,13 +244,31 @@ function pageResult(outcome: CrawlOutcome) {
   };
 }
 
+const STORE_FUNCTIONS = [
+  "listTemplates",
+  "listListingTemplates",
+  "saveTemplate",
+  "saveListingTemplate",
+  "updateTemplate",
+  "updateListingTemplate",
+] as const satisfies ReadonlyArray<keyof TemplateStore>;
+
 function validateOptions(options: CrawlerOptions): void {
   const fail = (message: string): never => {
     throw new TypeError(`createCrawler: ${message}`);
   };
   if (typeof options !== "object" || options === null) fail("options must be an object.");
-  if (typeof options.dataDir !== "string" || options.dataDir.trim() === "") {
-    fail("options.dataDir is required: the folder that holds the saved templates.");
+  const hasDataDir = typeof options.dataDir === "string" && options.dataDir.trim() !== "";
+  if (options.dataDir !== undefined && !hasDataDir) fail("options.dataDir must be a folder path.");
+  if (!hasDataDir && options.store === undefined) {
+    fail("options.dataDir or options.store is required: the folder or the store that holds the saved templates.");
+  }
+  if (!hasDataDir && options.writeArtifacts === true) {
+    fail("options.dataDir is required with writeArtifacts: true, because page packets and agent transcripts are files.");
+  }
+  if (options.store !== undefined) {
+    const missing = STORE_FUNCTIONS.filter(name => typeof (options.store as Record<string, unknown> | null)?.[name] !== "function");
+    if (missing.length > 0) fail(`options.store needs these functions: ${missing.join(", ")}.`);
   }
   if (typeof options.userAgent !== "string" || options.userAgent.trim() === "") {
     fail("options.userAgent is required: a name for your crawler, e.g. \"MyBot/1.0 (+https://example.com/bot)\". There is no default.");

@@ -189,15 +189,23 @@ export async function saveListingTemplate(
 export async function listListingTemplates(
   store: DomainStore,
 ): Promise<ReuseDiscoveryResult<ListingTemplateArtifact>> {
-  return readTemplateArtifacts(store.listingsPath, "listing template", (value, artifactPath, warnings) => {
-    const itemUrlPatterns = isRecord(value) ? readPatternList(value, "itemUrlPatterns", "itemUrlPattern") : null;
-    if (itemUrlPatterns && isListingTemplate(value) && normalizeStoredDomain(value.domain) === store.domain) {
-      const { itemUrlPattern: _legacy, ...template } = value as ListingTemplate & { itemUrlPattern?: string };
-      return { ...template, urlPatterns: normalizePatterns(value.urlPatterns), itemUrlPatterns };
-    }
-    pushTemplateValidationWarning(warnings, artifactPath, `Listing template is invalid or does not match domain ${store.domain}.`);
-    return null;
-  });
+  return readTemplateArtifacts(store.listingsPath, "listing template", (value, artifactPath, warnings) =>
+    validateListingTemplate(value, store.domain, artifactPath, warnings));
+}
+
+export function validateListingTemplate(
+  value: unknown,
+  domain: string,
+  ref: string,
+  warnings: ReuseWarning[],
+): ListingTemplate | null {
+  const itemUrlPatterns = isRecord(value) ? readPatternList(value, "itemUrlPatterns", "itemUrlPattern") : null;
+  if (itemUrlPatterns && isListingTemplate(value) && normalizeStoredDomain(value.domain) === domain) {
+    const { itemUrlPattern: _legacy, ...template } = value as ListingTemplate & { itemUrlPattern?: string };
+    return { ...template, urlPatterns: normalizePatterns(value.urlPatterns), itemUrlPatterns };
+  }
+  pushTemplateValidationWarning(warnings, ref, `Listing template is invalid or does not match domain ${domain}.`);
+  return null;
 }
 
 function isListingTemplate(value: unknown): value is Omit<ListingTemplate, "itemUrlPatterns"> {
@@ -219,7 +227,7 @@ function isListingTemplate(value: unknown): value is Omit<ListingTemplate, "item
 
 export async function listTemplatesForDomain(store: DomainStore): Promise<ReuseDiscoveryResult<TemplateMatchCandidate>> {
   return readTemplateArtifacts(store.templatesPath, "template", (value, artifactPath, warnings) =>
-    validateTemplateArtifact(value, store, artifactPath, warnings));
+    validateFieldTemplate(value, store.domain, artifactPath, warnings));
 }
 
 async function readTemplateArtifacts<T>(
@@ -259,16 +267,22 @@ const patternWrites = new Map<string, Promise<void>>();
 export function addPatternToTemplate(templatePath: string, url: string): Promise<void> {
   const previous = patternWrites.get(templatePath) ?? Promise.resolve();
   const next = previous.catch(() => {}).then(async () => {
-    const template = await readJsonFile<Record<string, unknown>>(templatePath);
-    const { urlPattern: _legacy, ...rest } = template;
-    const patterns = readUrlPatterns(template) ?? [];
-    if (urlMatchesPattern(url, patterns)) return;
-    await writeJsonFile(templatePath, { ...rest, urlPatterns: normalizePatterns([...patterns, inferUrlPattern(url)]) });
+    const updated = withUrlPattern(await readJsonFile<unknown>(templatePath), url);
+    if (updated !== null) await writeJsonFile(templatePath, updated);
   });
   patternWrites.set(templatePath, next);
   return next.finally(() => {
     if (patternWrites.get(templatePath) === next) patternWrites.delete(templatePath);
   });
+}
+
+/** The template JSON with a pattern for `url` added, or null when a pattern already matches `url`. */
+export function withUrlPattern(template: unknown, url: string): Record<string, unknown> | null {
+  if (!isRecord(template)) return null;
+  const { urlPattern: _legacy, ...rest } = template;
+  const patterns = readUrlPatterns(template) ?? [];
+  if (urlMatchesPattern(url, patterns)) return null;
+  return { ...rest, urlPatterns: normalizePatterns([...patterns, inferUrlPattern(url)]) };
 }
 
 export async function savePageArtifacts(
@@ -445,9 +459,9 @@ export function schemasMatch(
   });
 }
 
-function validateTemplateArtifact(
+export function validateFieldTemplate(
   value: unknown,
-  store: DomainStore,
+  domain: string,
   artifactPath: string,
   warnings: ReuseWarning[],
 ): ExtractionTemplate | null {
@@ -476,11 +490,11 @@ function validateTemplateArtifact(
     return null;
   }
 
-  if (normalizeStoredDomain(value.domain) !== store.domain) {
+  if (normalizeStoredDomain(value.domain) !== domain) {
     pushTemplateValidationWarning(
       warnings,
       artifactPath,
-      `Template artifact does not match domain ${store.domain}.`,
+      `Template artifact does not match domain ${domain}.`,
     );
     return null;
   }

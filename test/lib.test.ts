@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import type { CrawlOptions, CrawlOutcome, CrawlStartInput, ItemOutcome, ListingOutcome } from "../src/core/crawl-run.ts";
 import { CrawlFailure, type CrawlFailureCode, type PolicyInfo } from "../src/core/policy/policy.ts";
-import { createCrawler, type CrawlerOptions, type LibraryDependencies, type LLMProvider, type LLMRequest } from "../src/lib.ts";
+import { createCrawler, type CrawlerOptions, type LibraryDependencies, type LLMProvider, type LLMRequest, type TemplateStore } from "../src/lib.ts";
+import { memoryStore } from "./fixtures/memory-store.ts";
 import type { LLMProvider as InternalProvider } from "../src/core/llm-extractor/providers/LLMProvider.ts";
 import { ClaudeCliProvider } from "../src/core/llm-extractor/providers/ClaudeCliProvider.ts";
 import { authorTemplate } from "../src/core/template-author/authorTemplate.ts";
@@ -330,6 +331,39 @@ describe("provider option", () => {
     expect(() => createCrawler({ ...options, provider: {} as LLMProvider }, deps)).toThrow("options.provider needs a completeStructured(request) function");
     expect(() => createCrawler({ ...options, provider: callerProvider().provider, model: " " }, deps)).toThrow("options.model");
     expect(() => createCrawler({ ...options, model: "some-model" }, deps)).toThrow("options.model needs options.provider");
+  });
+});
+
+describe("store option", () => {
+  it("creates a crawler with a store and no dataDir, and passes the store to the runner", () => {
+    const f = fakes(async () => article);
+    const { store } = memoryStore();
+    const { dataDir: _dataDir, ...noDataDir } = options;
+
+    createCrawler({ ...noDataDir, store }, f.deps);
+
+    expect(f.runnerOptions[0]!.store).toBe(store);
+    expect(f.runnerOptions[0]!.dataDir).toBeUndefined();
+  });
+
+  it("throws without both dataDir and store, and names both", () => {
+    const { dataDir: _dataDir, ...noDataDir } = options;
+
+    expect(() => createCrawler(noDataDir, fakes(async () => article).deps)).toThrow("options.dataDir or options.store is required");
+  });
+
+  it("needs dataDir for writeArtifacts, even with a store", () => {
+    const { dataDir: _dataDir, ...noDataDir } = options;
+
+    expect(() => createCrawler({ ...noDataDir, store: memoryStore().store, writeArtifacts: true }, fakes(async () => article).deps))
+      .toThrow("options.dataDir is required with writeArtifacts: true");
+  });
+
+  it("names the functions that a store lacks", () => {
+    const { updateListingTemplate: _update, ...partial } = memoryStore().store;
+
+    expect(() => createCrawler({ ...options, store: partial as TemplateStore }, fakes(async () => article).deps))
+      .toThrow("options.store needs these functions: updateListingTemplate.");
   });
 });
 

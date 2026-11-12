@@ -1,5 +1,7 @@
 import { withRenderedPage, withSnapshotPage, type BrowserSessionOptions, type RenderedPageContext } from "./crawler.ts";
 import type { PagePacket } from "./types.ts";
+import type { TemplateStore } from "../lib-types.ts";
+import { fileTemplateRepository, storeTemplateRepository } from "./template-repository.ts";
 import type { LLMProvider } from "./llm-extractor/providers/LLMProvider.ts";
 import type { UserSchema } from "./llm-extractor/types.ts";
 import type { ExtractionTemplate } from "./templating/types.ts";
@@ -113,6 +115,7 @@ export type CrawlOptions = {
   robots?: RobotsChecker | null;
   authoring?: boolean;
   writeArtifacts?: boolean;
+  store?: TemplateStore;
   onProgress?: (message: string) => void;
 };
 
@@ -196,6 +199,7 @@ export async function startCrawl(
   let userSchema = input.schema;
   const fieldsGiven = Object.keys(userSchema).length > 0;
   const store = deps.createDomainStore({ targetUrl: input.target, rootPath: options.dataDir });
+  const templates = options.store ? storeTemplateRepository(options.store, store.domain) : fileTemplateRepository(store, deps);
 
   const robots = isSnapshot ? null : options.robots ?? null;
   const robotsStatus: RobotsStatus = robots ? await robots.check(input.target) : "unknown";
@@ -227,7 +231,7 @@ export async function startCrawl(
 
     const saveArtifacts = (artifacts: PageArtifacts) =>
       options.writeArtifacts === false ? Promise.resolve(null) : deps.savePageArtifacts(store, artifacts).then(folder => folder.path);
-    const [domainListings, domainTemplates] = await Promise.all([deps.listListingTemplates(store), deps.listTemplatesForDomain(store)]);
+    const [domainListings, domainTemplates] = await Promise.all([templates.listListingTemplates(), templates.listTemplates()]);
     const storedPatterns = [
       ...domainTemplates.candidates.flatMap(candidate => candidate.template.urlPatterns),
       ...domainListings.candidates.flatMap(candidate => [...candidate.template.urlPatterns, ...candidate.template.itemUrlPatterns]),
@@ -252,7 +256,7 @@ export async function startCrawl(
       domainListings.candidates.some(candidate => urlMatchesPattern(finalUrl, candidate.template.itemUrlPatterns));
     const listingFit = isItemPage ? null : await findListingFit(page, listingCandidates, finalUrl, deps);
     const listingOutcome = async ({ candidate, links, matchedPattern }: ListingFit): Promise<ListingOutcome> => {
-      if (!matchedPattern) await deps.addPatternToTemplate(candidate.path, finalUrl);
+      if (!matchedPattern) await templates.addListingPattern(candidate.path, finalUrl);
       progress(`Read the links with the saved listing template ${candidate.path}.`);
       return {
         ...facts,
@@ -300,7 +304,7 @@ export async function startCrawl(
       const { candidate, result } = decision.trial;
       const matchedPattern = decision.kind === "fit" ? decision.matchedPattern : true;
       if (decision.kind === "fit" && !matchedPattern) {
-        await deps.addPatternToTemplate(candidate.path, finalUrl);
+        await templates.addPattern(candidate.path, finalUrl);
       }
       progress(decision.kind === "fit"
         ? `Extracted with the saved template ${candidate.path}.`
@@ -377,8 +381,8 @@ export async function startCrawl(
     }
 
     if (classification.kind === "listing") {
-      const listingArtifact = await deps.saveListingTemplate(store, classification.template);
-      progress(`Saved the listing template ${listingArtifact.path}.`);
+      const listingRef = await templates.saveListingTemplate(classification.template);
+      progress(`Saved the listing template ${listingRef}.`);
       return {
         ...facts,
         urlPattern: classification.template.urlPatterns[0]!,
@@ -389,7 +393,7 @@ export async function startCrawl(
         linkGroups: groups,
         llmUsed: true,
         provider: classification.provider,
-        templateFit: { templateId: classification.template.id, templatePath: listingArtifact.path, matchedPattern: true },
+        templateFit: { templateId: classification.template.id, templatePath: listingRef, matchedPattern: true },
         artifactFolder: await saveArtifacts({
           pagePacket,
           llmResult: {
@@ -432,7 +436,7 @@ export async function startCrawl(
       onProgress: progress,
     });
 
-    const templateArtifact = await deps.saveTemplate(store, authored.template);
+    const templateRef = await templates.saveTemplate(authored.template);
     const result = await deps.extractWithTemplate({ page, pagePacket, template: authored.template });
     const warnings = [...storeWarnings, ...authored.warnings, ...result.warnings];
     const artifactFolder = await saveArtifacts({
@@ -457,7 +461,7 @@ export async function startCrawl(
       result,
       llmUsed: true,
       provider: authored.provider,
-      templateFit: { templateId: authored.template.id, templatePath: templateArtifact.path, matchedPattern: true },
+      templateFit: { templateId: authored.template.id, templatePath: templateRef, matchedPattern: true },
       missing: missingFields(userSchema, result.payload),
       stale: false,
       artifactFolder,
