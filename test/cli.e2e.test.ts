@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { listingA, listingB } from "./fixtures/shop-listings.ts";
 
 // End to end: the built CLI on Node, a real Chromium, a local site and a fake `claude`
 // on PATH. The first page authors a template; the second reuses it without the agent.
@@ -56,6 +57,8 @@ const pages: Record<string, string> = {
   "/products/watch-2": productPage("Watch", "€120.50"),
   "/2026/11/04/clock-3": productPage("Wall clock", "€30.00"),
   "/about": "<!doctype html><html><head><title>About | Shop</title></head><body><main><p>We sell clocks.</p></main></body></html>",
+  [new URL(listingA.url).pathname]: listingA.html,
+  [new URL(listingB.url).pathname]: listingB.html,
 };
 
 const claudeEnvelope = {
@@ -100,6 +103,19 @@ const brandEnvelope = {
 const brandClassifyEnvelope = {
   ...claudeEnvelope,
   structured_output: { ...classifyEnvelope.structured_output, pageUrlPattern: "/category/brands/:slug", itemUrlPattern: "/:brand/:slug" },
+};
+
+const specsEnvelope = {
+  ...claudeEnvelope,
+  structured_output: {
+    fields: {
+      price: { selectors: [{ kind: "css", selector: "p.price", attribute: "textContent" }], expectedSample: "9500" },
+      specs: { selectors: [{ kind: "css", selector: "table.specs", attribute: "textContent" }], expectedSample: "Marca" },
+    },
+    urlPattern: "/:brand/:slug--id:id.htm",
+    sameTypeLinks: [],
+    otherTypeLinks: [],
+  },
 };
 
 const detailEnvelope = {
@@ -159,12 +175,14 @@ describe("turbo-crawl CLI end to end", () => {
     const detailFile = path.join(workDir, "detail.json");
     const brandFile = path.join(workDir, "brand.json");
     const brandClassifyFile = path.join(workDir, "brand-classify.json");
+    const specsFile = path.join(workDir, "specs.json");
     await mkdir(binDir, { recursive: true });
     await writeFile(envelopeFile, JSON.stringify(claudeEnvelope), "utf8");
     await writeFile(classifyFile, JSON.stringify(classifyEnvelope), "utf8");
     await writeFile(detailFile, JSON.stringify(detailEnvelope), "utf8");
     await writeFile(brandFile, JSON.stringify(brandEnvelope), "utf8");
     await writeFile(brandClassifyFile, JSON.stringify(brandClassifyEnvelope), "utf8");
+    await writeFile(specsFile, JSON.stringify(specsEnvelope), "utf8");
     await writeFile(
       path.join(binDir, "claude"),
       [
@@ -173,7 +191,7 @@ describe("turbo-crawl CLI end to end", () => {
         `echo call >> "${counterFile}"`,
         `url=$(printf '%s' "$prompt" | grep -m1 '^URL: ')`,
         `case "$prompt" in *"listing or a detail page"*) ;; *)`,
-        `  case "$url" in */rolex/*|*/omega/*|*/tudor/*) cat "${brandFile}" ;; *) cat "${envelopeFile}" ;; esac; exit 0 ;; esac`,
+        `  case "$url" in *--id*) cat "${specsFile}" ;; */rolex/*|*/omega/*|*/tudor/*) cat "${brandFile}" ;; *) cat "${envelopeFile}" ;; esac; exit 0 ;; esac`,
         `case "$url" in */category/brands/*) cat "${brandClassifyFile}" ;; */category/*) cat "${classifyFile}" ;; *) cat "${detailFile}" ;; esac`,
         "",
       ].join("\n"),
@@ -255,6 +273,43 @@ describe("turbo-crawl CLI end to end", () => {
       const calls = (await readFile(counterFile, "utf8")).trim().split("\n");
       expect(calls).toHaveLength(2);
       expect(new Set(userAgents)).toEqual(new Set(["E2EBot/1.0"]));
+    },
+    60_000,
+  );
+
+  it(
+    "authors a pairs field on a listing with 3 spec rows and reads all 5 rows of another listing without the agent",
+    async () => {
+      if (buildError !== null) return;
+
+      const base = `http://127.0.0.1:${server!.port}`;
+      const dataDir = path.join(workDir, "specs-data");
+      const agentCalls = async () => (await readFile(counterFile, "utf8").catch(() => "")).trim().split("\n").filter(Boolean).length;
+
+      const authoredRun = await runCli(
+        ["crawl", `${base}${new URL(listingA.url).pathname}`, "--fields", "price:number,specs:pairs", "--data-dir", dataDir],
+        env,
+        workDir,
+      );
+      expect(authoredRun.stderr).not.toContain("error:");
+      expect(authoredRun.code).toBe(0);
+      const authored = JSON.parse(authoredRun.stdout);
+      expect(authored).toMatchObject({ path: "authored", urlPattern: "/:brand/:slug--id:id.htm", data: { price: 9500 } });
+      expect(authored.data.specs).toEqual({ Marca: "Rolex", Modello: "Submariner", Diametro: "40 mm" });
+      const callsAfterAuthoring = await agentCalls();
+
+      const reusedRun = await runCli(["crawl", `${base}${new URL(listingB.url).pathname}`, "--data-dir", dataDir], env, workDir);
+      expect(reusedRun.code).toBe(0);
+      const reused = JSON.parse(reusedRun.stdout);
+      expect(reused).toMatchObject({ path: "template-reuse", llmUsed: false, stale: false, data: { price: 4200 } });
+      expect(reused.data.specs).toEqual({
+        Marca: "Omega",
+        Modello: "Seamaster",
+        "Numero di referenza": "210.30",
+        "Larghezza ansa": "20 mm",
+        Diametro: "42 mm",
+      });
+      expect(await agentCalls()).toBe(callsAfterAuthoring);
     },
     60_000,
   );
