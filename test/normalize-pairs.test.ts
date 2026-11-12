@@ -14,6 +14,12 @@ describe("pairs values", () => {
     });
   });
 
+  it("keeps labels that are also names of object members", () => {
+    expect(pairs(JSON.parse('{"constructor":"a","toString":"b","__proto__":"c"}'))).toEqual(
+      JSON.parse('{"constructor":"a","toString":"b","__proto__":"c"}'),
+    );
+  });
+
   it("gives null for fewer than 3 usable pairs, an array or a string", () => {
     expect(pairs({ Marca: "Rolex", Modello: "", Diametro: 40 })).toBeNull();
     expect(pairs([["Marca", "Rolex"]])).toBeNull();

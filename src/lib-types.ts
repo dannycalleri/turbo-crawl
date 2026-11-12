@@ -57,6 +57,7 @@ export type TemplateStore = {
   /**
    * Reads the template, calls `update`, and saves what it returns, as one operation:
    * two updates of one template at the same time must not lose a change.
+   * `update` returns the same object when nothing changed, so the store can skip the write.
    */
   updateTemplate(ref: string, update: (template: TemplateJson) => TemplateJson): Promise<void>;
   updateListingTemplate(ref: string, update: (template: TemplateJson) => TemplateJson): Promise<void>;

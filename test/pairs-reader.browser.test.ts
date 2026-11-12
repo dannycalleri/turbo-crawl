@@ -124,6 +124,26 @@ describe("pairs field reader", () => {
     expect(result.value).toEqual({ Diametro: "40 mm", Spessore: "12 mm", Marca: "Rolex(12)" });
   });
 
+  it("reads a label that is also the name of an object member as a label, not as a repeat", async () => {
+    const result = await readSpecs(`<dl class="specs">
+      <dt>constructor</dt><dd>Rolex</dd><dt>toString</dt><dd>Oyster</dd><dt>__proto__</dt><dd>40 mm</dd>
+    </dl>`, "dl.specs");
+
+    expect(Object.entries(result.value as object)).toEqual([["constructor", "Rolex"], ["toString", "Oyster"], ["__proto__", "40 mm"]]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("does not read a header cell with two parts as a pair", async () => {
+    const result = await readSpecs(`<table class="specs">
+      <tr><th colspan="2"><b>Dimensions</b> <small>(mm)</small></th></tr>
+      <tr><td>Width</td><td>40</td></tr>
+      <tr><td>Height</td><td>12</td></tr>
+      <tr><td>Lug width</td><td>20</td></tr>
+    </table>`, "table.specs");
+
+    expect(result.value).toEqual({ Width: "40", Height: "12", "Lug width": "20" });
+  });
+
   it("keeps the first value of a repeated label, with a warning that names it", async () => {
     const result = await readSpecs(`<table class="specs">
       <tr><td>Marca</td><td>Rolex</td></tr><tr><td>Marca</td><td>Tudor</td></tr>

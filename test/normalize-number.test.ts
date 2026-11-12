@@ -15,6 +15,7 @@ describe("number values", () => {
     expect(number("1.250.000 €")).toBe(1250000);
     expect(number("1,250,000")).toBe(1250000);
     expect(number("1.25.000")).toBeNull();
+    expect(number("12345.678.901")).toBeNull();
   });
 
   it("reads the last separator as the decimal separator when both kinds are there", () => {

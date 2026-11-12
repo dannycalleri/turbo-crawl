@@ -8,8 +8,12 @@ export type PairsReadResult = {
     warnings: string[];
 };
 
+export function readsPairs(selector: SelectorCandidate): boolean {
+    return selector.kind === "css" || selector.kind === "xpath";
+}
+
 export async function readPairsSelector(page: Page, selector: SelectorCandidate): Promise<PairsReadResult> {
-    if (selector.kind !== "css" && selector.kind !== "xpath") {
+    if (!readsPairs(selector)) {
         return { pairs: null, warnings: [`A pairs field needs a css or xpath selector, not ${selector.kind}.`] };
     }
 
@@ -17,12 +21,12 @@ export async function readPairsSelector(page: Page, selector: SelectorCandidate)
     if (first === null) return { pairs: null, warnings };
 
     const rows = await first.evaluate(readRows);
-    const pairs: Record<string, string> = {};
+    const pairs = new Map<string, string>();
     for (const [label, value] of rows) {
-        if (label in pairs) warnings.push(`Label "${label}" appears more than once; kept the first value.`);
-        else pairs[label] = value;
+        if (pairs.has(label)) warnings.push(`Label "${label}" appears more than once; kept the first value.`);
+        else pairs.set(label, value);
     }
-    return { pairs, warnings };
+    return { pairs: Object.fromEntries(pairs), warnings };
 }
 
 export function pairsValue(read: PairsReadResult): { value: Record<string, string> | null; warnings: string[] } {
@@ -45,7 +49,7 @@ function readRows(container: Element): Array<[string, string]> {
         return textMemo.get(element)!;
     };
     const asLabel = (text: string) => text.replace(/\s*:$/, "");
-    const STRUCTURE = new Set(["TABLE", "THEAD", "TBODY", "TFOOT", "TR", "DL", "DT", "DD"]);
+    const STRUCTURE = new Set(["TABLE", "THEAD", "TBODY", "TFOOT", "TR", "TH", "DL", "DT", "DD"]);
 
     const textChildren = (element: Element) => Array.from(element.children).filter(child => clean(child) !== "");
     const pairMemo = new Map<Element, boolean>();
