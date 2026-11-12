@@ -1,5 +1,15 @@
 # Upgrading
 
+## From 0.4 to 0.5
+
+Version 0.5 adds library options and the field type `pairs`. All the new options are optional. When you do not use them, turbo-crawl operates as in version 0.4. The CLI also accepts `pairs` in `--fields`. The file layout of the templates does not change, but version 0.4 cannot read a template that has a `pairs` field.
+
+- **`crawler.extractHtml({ url, html })`.** It reads HTML that you rendered, and it does not get the page. Refer to [`extractHtml`](reference.md#extracthtml-url-html-fields-require-).
+- **The field type `pairs`.** It reads all the label/value rows of one part of the page, for example a specification table. Refer to [Pairs fields](reference.md#pairs-fields).
+- **The `provider` and `model` options.** Your own model client does the agent calls. Refer to [Your own model client](reference.md#your-own-model-client).
+- **The `store` option.** Your own storage keeps the templates. `dataDir` is then optional. Refer to [Your own template store](reference.md#your-own-template-store).
+- **Type changes.** `CrawlerOptions.dataDir` is optional in the TypeScript types, because `store` can replace it. `FieldType` has the new value `"pairs"`. If your code examines all the values of `FieldType`, add `"pairs"`.
+
 ## From 0.3 to 0.4
 
 Version 0.4 changes how turbo-crawl makes and uses URL patterns.

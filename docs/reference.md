@@ -269,7 +269,7 @@ The library also downloads Chromium when it is missing. Refer to [Chromium](#chr
 
 ### `createCrawler(options)`
 
-The required options are `dataDir`, `userAgent` and `authoring` (`"never"` or `"allowed"`).
+The required options are `userAgent`, `authoring` (`"never"` or `"allowed"`), and `dataDir` or `store`. `dataDir` is also necessary when `writeArtifacts` is `true`, because page packets and agent transcripts are files.
 
 The optional options are:
 
@@ -280,6 +280,7 @@ The optional options are:
 - `maxConcurrentPages`. The default is `4`.
 - `provider`. Your own model client. Refer to [Your own model client](#your-own-model-client).
 - `model`. The model id that turbo-crawl sends to `provider`. It is valid only with `provider`. For `claude`, `codex` and LM Studio, use `TURBO_CRAWL_MODEL`.
+- `store`. Your own template storage. Refer to [Your own template store](#your-own-template-store).
 
 The library does not read config files. One crawler uses one browser. You can run calls at the same time. When more than `maxConcurrentPages` calls run, the other calls wait.
 
@@ -334,6 +335,33 @@ const crawler = createCrawler({
 ```
 
 The package exports the types `LLMProvider`, `LLMRequest`, `LLMResponse` and `LLMMessage`.
+
+### Your own template store
+
+By default, turbo-crawl keeps the templates as files under `dataDir`. Refer to [Data layout](#data-layout). A server in a container that does not keep files must keep the templates in other storage, for example a database. For this case, give the `store` option.
+
+`store` is an object with these functions:
+
+| Function | Description |
+| --- | --- |
+| `listTemplates(domain)` | Resolves to the field templates of the domain, as `[{ ref, template }]`. |
+| `listListingTemplates(domain)` | Resolves to the listing templates of the domain, as `[{ ref, template }]`. |
+| `saveTemplate(template)` | Saves a field template and resolves to its `ref`. A template with the same `id` replaces the old template. |
+| `saveListingTemplate(template)` | The same for a listing template. |
+| `updateTemplate(ref, update)` | Reads the field template, calls `update(template)`, and saves the template that `update` returns. |
+| `updateListingTemplate(ref, update)` | The same for a listing template. |
+
+- `domain` is the host name in lower case, without `www.`. Example: `shop.example`.
+- `ref` is your id for a template, as a string. turbo-crawl gives it back in `updateTemplate` and `updateListingTemplate`, and as `templateFit.templatePath`.
+- `template` is JSON. Keep all its properties. turbo-crawl reads `id`, `domain`, `urlPatterns` and many other properties.
+
+**An update must be one operation.** Two calls can fit the same template at the same time, and each call adds a URL pattern. Thus `updateTemplate` and `updateListingTemplate` must read, change and save the template without a different write between these steps. For example, in SQL, read the row with `SELECT … FOR UPDATE` in a transaction. In `update`, turbo-crawl merges the patterns and keeps a maximum of 20 patterns. Your store does not have to merge or limit the patterns.
+
+turbo-crawl examines each template from the store in the same way as a template file. When a template is not valid, turbo-crawl ignores it and adds a warning to the result, for example `The template row-3 from the store was ignored: …`.
+
+When you give `store`, turbo-crawl does not read or write templates under `dataDir`. Page packets and agent transcripts are still files under `dataDir`, when `writeArtifacts` is `true`.
+
+To move templates from files into your store, read each `<dataDir>/<domain>/templates/<id>.json` and `listings/<id>.json` file, and save it with `saveTemplate` or `saveListingTemplate`. To move them back, write each template to the same paths. The CLI can then use the folder with `--data-dir`.
 
 ### `extract(url, { fields?, require? })`
 
