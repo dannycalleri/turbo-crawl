@@ -249,10 +249,10 @@ Example for GitHub Actions. The project lists `@fragmentoid/turbo-crawl` and `pl
 
 | Variable | Purpose |
 | --- | --- |
-| `TURBO_CRAWL_PROVIDER` | The default provider when you do not give `--provider`. |
-| `TURBO_CRAWL_MODEL` | The default model. |
+| `TURBO_CRAWL_PROVIDER` | The default provider when you do not give `--provider`. The library does not use it when you give the `provider` option. |
+| `TURBO_CRAWL_MODEL` | The default model of `claude`, `codex` and LM Studio. With the library `provider` option, use the `model` option. |
 | `TURBO_CRAWL_DATA_DIR` | The default data folder. |
-| `TURBO_CRAWL_LLM_TIMEOUT_MS` | The maximum time for one agent call, in milliseconds. The default is `600000`. |
+| `TURBO_CRAWL_LLM_TIMEOUT_MS` | The maximum time for one agent call, in milliseconds. The default is `600000`. This limit also applies to the library `provider` option. |
 | `TURBO_CRAWL_SKELETON_BYTES` | The maximum size of the page outline that turbo-crawl sends to the agent. The default is `120000`. |
 | `TURBO_CRAWL_CLAUDE_BIN`, `TURBO_CRAWL_CODEX_BIN` | The path to a specific `claude` or `codex` binary. |
 | `TURBO_CRAWL_LMSTUDIO_URL` | The base URL of LM Studio. The default is `http://localhost:1234`. |
@@ -278,8 +278,62 @@ The optional options are:
 - `navigationTimeoutMs`. The default is `30000`.
 - `settleTimeoutMs`. The default is `10000`.
 - `maxConcurrentPages`. The default is `4`.
+- `provider`. Your own model client. Refer to [Your own model client](#your-own-model-client).
+- `model`. The model id that turbo-crawl sends to `provider`. turbo-crawl uses this option only with `provider`.
 
 The library does not read config files. One crawler uses one browser. You can run calls at the same time. When more than `maxConcurrentPages` calls run, the other calls wait.
+
+### Your own model client
+
+By default, turbo-crawl starts `claude`, `codex` or LM Studio when it must write a template. A server often has no CLI login. It calls models through its own client or gateway. For this case, give the `provider` option.
+
+`provider` is an object with a `completeStructured(request)` function. The optional `name` shows in progress messages and errors. The default is `"custom"`. turbo-crawl uses it for every agent call: the page kind, the field suggestion, the template, the repair rounds and the URL pattern. It then does not look for `claude` or `codex`, and it does not read `TURBO_CRAWL_PROVIDER`. When `authoring` is `"never"`, turbo-crawl does not call the object.
+
+The request has these values:
+
+| Value | Description |
+| --- | --- |
+| `model` | The `model` option, or `null` when you do not give it. |
+| `messages` | The system message and the user message, as `{ role, content }`. |
+| `jsonSchema` | The JSON Schema of the answer. |
+| `temperature` | Optional. turbo-crawl sends `0`. |
+| `maxTokens` | Optional. turbo-crawl does not set it at this time. |
+| `timeoutMs` | The value of `TURBO_CRAWL_LLM_TIMEOUT_MS`. The default is `600000`. |
+| `signal` | An `AbortSignal`. turbo-crawl aborts it when `timeoutMs` passes. |
+
+The function must resolve to `{ parsed, raw }`. `parsed` is the answer as a JSON value. turbo-crawl examines `parsed` with the same schema as an answer from `claude` or `codex`. When the answer is not correct, turbo-crawl repairs or rejects it in the same way. `raw` goes into the agent transcript when `writeArtifacts` is `true`.
+
+When the function does not resolve before `timeoutMs`, turbo-crawl aborts `signal`, and the call rejects with an error that gives the time and `TURBO_CRAWL_LLM_TIMEOUT_MS`. Give `signal` to your client, so that your client also stops the request.
+
+Example with the `ai` package (it is not a dependency of turbo-crawl):
+
+```ts
+import { generateObject, jsonSchema } from "ai";
+import { createCrawler, type LLMProvider } from "@fragmentoid/turbo-crawl";
+
+const provider: LLMProvider = {
+  name: "gateway",
+  async completeStructured({ model, messages, jsonSchema: schema, signal }) {
+    const { object } = await generateObject({
+      model: model ?? "provider/model-id",
+      messages,
+      schema: jsonSchema(schema as object),
+      abortSignal: signal,
+    });
+    return { parsed: object, raw: object };
+  },
+};
+
+const crawler = createCrawler({
+  dataDir: "templates",
+  userAgent: "MyBot/1.0 (+https://example.com/bot)",
+  authoring: "allowed",
+  provider,
+  model: "provider/model-id",
+});
+```
+
+The package exports the types `LLMProvider`, `LLMRequest`, `LLMResponse` and `LLMMessage`.
 
 ### `extract(url, { fields?, require? })`
 
