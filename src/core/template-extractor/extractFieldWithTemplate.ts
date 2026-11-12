@@ -10,6 +10,7 @@ import type {
     FieldExtractionResult,
 } from "./types";
 import { readSelectorValue } from "./selectorValueReader";
+import { pairsValue, readPairsSelector } from "./pairsReader";
 
 export async function extractFieldWithTemplate(input: {
     page: Page;
@@ -20,7 +21,21 @@ export async function extractFieldWithTemplate(input: {
     const warnings: string[] = [];
     const baseUrl = input.pagePacket.finalUrl || input.pagePacket.url;
 
+    const tryPairsCandidate = async (selector: SelectorCandidate): Promise<CandidateExtraction> => {
+        const read = await readPairsSelector(input.page, selector);
+        const { value, warnings: readWarnings } = pairsValue(read);
+        return {
+            selector,
+            rawValue: read.pairs === null ? null : JSON.stringify(read.pairs),
+            normalizedValue: value,
+            valid: value !== null,
+            confidence: selector.score,
+            warnings: readWarnings,
+        };
+    };
+
     const tryCandidate = async (selector: SelectorCandidate): Promise<CandidateExtraction> => {
+        if (input.field.type === "pairs") return tryPairsCandidate(selector);
         const readResult = await readSelectorValue({
             page: input.page,
             pagePacket: input.pagePacket,

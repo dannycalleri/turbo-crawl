@@ -35,11 +35,15 @@ describe("parseFieldsOption", () => {
     expect(parseFieldsOption(" title:string, price : number ,")).toEqual({ title: "string", price: "number" });
   });
 
+  it("accepts a pairs field", () => {
+    expect(parseFieldsOption("price:number,specs:pairs")).toEqual({ price: "number", specs: "pairs" });
+  });
+
   it("names the allowed types for an unknown type", () => {
     const error = usageError(() => parseFieldsOption("price:float"));
 
     expect(error.message).toContain('Unknown type "float"');
-    expect(error.message).toContain("string, number, boolean, date, url, text");
+    expect(error.message).toContain("string, number, boolean, date, url, text, pairs");
   });
 
   it("rejects a malformed entry", () => {

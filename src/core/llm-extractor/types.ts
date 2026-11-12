@@ -1,4 +1,4 @@
-export const FIELD_TYPES = ["string", "number", "boolean", "date", "url", "text"] as const;
+export const FIELD_TYPES = ["string", "number", "boolean", "date", "url", "text", "pairs"] as const;
 
 export type FieldType = typeof FIELD_TYPES[number];
 

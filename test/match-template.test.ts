@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import type { FieldType } from "../src/core/llm-extractor/types.ts";
-import { decideTemplate, type TemplateTrial } from "../src/core/template-matcher/matchTemplate.ts";
+import { decideTemplate, misfitReasons, missingFields, type TemplateTrial } from "../src/core/template-matcher/matchTemplate.ts";
 import type { SelectorKind } from "../src/core/templating/types.ts";
+import { createFieldTemplate } from "../src/core/template-author/validateSelectors.ts";
 
 type FieldRead = { type: FieldType; value: unknown; kind?: SelectorKind; bodyMatched?: boolean };
 
@@ -146,5 +147,62 @@ describe("decideTemplate", () => {
       kind: "stale",
       reasons: ["body is shorter than 200 characters"],
     });
+  });
+});
+
+describe("a pairs field in the content fit", () => {
+  const specs = (count: number) => Object.fromEntries(Array.from({ length: count }, (_, i) => [`Label ${i + 1}`, `Value ${i + 1}`]));
+  const listing = (specsValue: unknown, brand: FieldRead = { type: "string", value: "Rolex" }) => trial("a", ["/:brand/:slug--id:id.htm"], {
+    brand,
+    price: { type: "number", value: 9500 },
+    specs: { type: "pairs", value: specsValue },
+  });
+
+  it("fits a page with 2 spec rows when specs is not required, and reports specs as missing", () => {
+    const page = listing(null);
+
+    expect(misfitReasons(page, ["price"])).toEqual([]);
+    expect(missingFields(page.candidate.template.schema, page.result.payload)).toEqual(["specs"]);
+  });
+
+  it("lets a pairs field read by css be the body selector of the fit", () => {
+    const page = listing(specs(5), { type: "string", value: "Rolex", kind: "table" });
+
+    expect(misfitReasons(page, ["brand", "specs"])).toEqual([]);
+  });
+
+  it("does not fit when a required pairs field has no value", () => {
+    expect(misfitReasons(listing(null), ["price", "specs"])).toContain("no value for specs");
+  });
+
+  it("is not stale on a page with more spec rows, or other labels, than the authoring page", () => {
+    const url = "https://shop.example/omega/seamaster--id51234567.htm";
+    const authoredOnA = { Marca: "Rolex", Modello: "Submariner", Diametro: "40 mm" };
+    const onB = [
+      { Marca: "Omega", Modello: "Seamaster", "Numero di referenza": "210.30", "Larghezza ansa": "20 mm", Diametro: "42 mm" },
+      { Cassa: "Acciaio", Vetro: "Zaffiro", Ansa: "20 mm" },
+    ];
+    for (const value of onB) {
+      const page = listing(value);
+      page.candidate.template.fields.specs = createFieldTemplate({
+        fieldName: "specs",
+        type: "pairs",
+        selectors: [{ kind: "css", selector: "table.specs", attribute: "textContent", score: 90, reusable: true }],
+        rawValue: JSON.stringify(authoredOnA),
+        normalizedValue: authoredOnA,
+      });
+
+      expect(page.candidate.template.fields.specs.validation.valueShape).toBe("pairs");
+      expect(decideTemplate([page], { url, fieldsGiven: true })).toMatchObject({ kind: "fit", matchedPattern: true });
+    }
+  });
+
+  it("counts a pairs field with a value as one field found", () => {
+    const withSpecs = trial("a", ["/:brand/:slug--id:id.htm"], { price: { type: "number", value: 9500 }, specs: { type: "pairs", value: specs(5) } });
+    const withoutSpecs = trial("b", ["/:brand/:slug--id:id.htm"], { price: { type: "number", value: 9500 }, specs: { type: "pairs", value: null } });
+
+    const decision = decideTemplate([withoutSpecs, withSpecs], { url: "https://shop.example/rolex/a--id1.htm", require: ["price"], fieldsGiven: false });
+
+    expect(decision).toMatchObject({ kind: "fit", trial: { candidate: { template: { id: "a" } } } });
   });
 });

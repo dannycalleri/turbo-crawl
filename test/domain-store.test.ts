@@ -463,6 +463,17 @@ describe("domain store foundational helpers", () => {
     });
   });
 
+  it("loads a template with a pairs field without a warning", async () => {
+    const rootPath = await createTempDir();
+    const store = createDomainStore({ targetUrl: "https://marketplace.example/products/example", rootPath });
+    await saveTemplate(store, { ...createTemplate(), schema: { price: "number", specs: "pairs" } });
+
+    const result = await listTemplatesForDomain(store);
+
+    expect(result.warnings).toEqual([]);
+    expect(result.candidates[0]?.template.schema).toEqual({ price: "number", specs: "pairs" });
+  });
+
   it("discovers a matching template whose embedded domain has a leading www prefix", async () => {
     const rootPath = await createTempDir();
     const store = createDomainStore({

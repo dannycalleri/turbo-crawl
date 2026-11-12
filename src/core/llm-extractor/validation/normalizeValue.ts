@@ -1,3 +1,4 @@
+import { MIN_PAIRS } from "../../template-extractor/pairsReader";
 import type { FieldType } from "../types";
 
 export function normalizeValue(input: {
@@ -27,7 +28,21 @@ export function normalizeValue(input: {
 
         case "url":
             return normalizeUrl(value, baseUrl);
+
+        case "pairs":
+            return normalizePairs(value);
     }
+}
+
+function normalizePairs(value: unknown): Record<string, string> | null {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+    const pairs: Record<string, string> = {};
+    for (const [label, text] of Object.entries(value)) {
+        const cleanLabel = label.replace(/\s+/g, " ").trim();
+        const cleanText = typeof text === "string" ? text.replace(/\s+/g, " ").trim() : "";
+        if (cleanLabel && cleanText && !(cleanLabel in pairs)) pairs[cleanLabel] = cleanText;
+    }
+    return Object.keys(pairs).length >= MIN_PAIRS ? pairs : null;
 }
 
 function normalizeString(value: unknown): string | null {
