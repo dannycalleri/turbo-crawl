@@ -119,6 +119,7 @@ export async function authorTemplate(input: AuthorTemplateInput): Promise<Author
                 fieldName,
                 type,
                 selectors: answer.fields[fieldName]?.selectors ?? [],
+                expectedSample: answer.fields[fieldName]?.expectedSample ?? null,
             });
             validations[fieldName] = results;
 

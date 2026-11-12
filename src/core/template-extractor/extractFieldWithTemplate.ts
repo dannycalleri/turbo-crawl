@@ -31,6 +31,7 @@ export async function extractFieldWithTemplate(input: {
             valid: value !== null,
             confidence: selector.score,
             warnings: readWarnings,
+            ...(selector.kind === "css" || selector.kind === "xpath" ? { pairCount: read.pairs === null ? 0 : Object.keys(read.pairs).length } : {}),
         };
     };
 
