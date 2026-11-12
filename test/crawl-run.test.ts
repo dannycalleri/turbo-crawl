@@ -32,6 +32,7 @@ import type { ListingLinks } from "../src/core/template-author/validateListingSe
 import type { LinkGroup } from "../src/core/extraction/links.ts";
 import type { ClassifyPageInput, PageClassification } from "../src/core/template-author/classifyPage.ts";
 import { memoryStore } from "./fixtures/memory-store.ts";
+import type { TemplateJson } from "../src/lib-types.ts";
 import { urlMatchesPattern } from "../src/core/templating/urlPatterns.ts";
 
 const tempDirs: string[] = [];
@@ -739,6 +740,34 @@ describe("startCrawl with a caller's template store", () => {
     expect(memory.calls.filter(call => call === "updateTemplate")).toHaveLength(2);
     expect(urls.map(url => urlMatchesPattern(url, saved))).toEqual([true, true]);
     expect(saved[0]).toBe("/tudor/:slug--id:id.htm");
+  });
+
+  it("rejects a store whose list is not an array, instead of reading no templates", async () => {
+    const memory = memoryStore();
+    const store = { ...memory.store, listTemplates: async () => ({ rows: [] }) as never };
+    const harness = await createHarness();
+
+    const error = await startCrawl(fieldsInput({ title: "string" }), { ...harness.options, store, writeArtifacts: false }, harness.deps).catch(caught => caught);
+
+    expect(error.message).toBe("store.listTemplates must resolve to an array of { ref, template }, not object.");
+    expect(harness.authorCalls).toHaveLength(0);
+  });
+
+  it("fails the update, and saves nothing, when the store calls update without a template", async () => {
+    const memory = memoryStore({ templates: { "row-7": createTemplate({ urlPatterns: ["/news/:slug"] }) } });
+    let saved: unknown = "untouched";
+    const store = {
+      ...memory.store,
+      updateTemplate: async (_ref: string, update: (template: TemplateJson) => TemplateJson) => {
+        saved = update(undefined as unknown as TemplateJson);
+      },
+    };
+    const harness = await createHarness();
+
+    const error = await startCrawl(fieldsInput({ title: "string" }), { ...harness.options, store, writeArtifacts: false }, harness.deps).catch(caught => caught);
+
+    expect(error.message).toStartWith('store.updateTemplate called update without a template for ref "row-7".');
+    expect(saved).toBe("untouched");
   });
 
   it("ignores an invalid template from the store with a warning that names its ref", async () => {

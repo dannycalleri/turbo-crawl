@@ -191,8 +191,8 @@ export type LinksResult = LinksSuccess | CrawlError;
 
 /**
  * `extract` and `links` resolve to a `CrawlError` for every page and template failure.
- * They reject only for invalid arguments, a missing Chromium, or, when authoring is
- * "allowed", an agent that is not installed or fails to write a template.
+ * They reject only for invalid arguments, a missing Chromium, a `store` that fails or breaks
+ * its contract, or, when authoring is "allowed", an agent that is not installed or fails to write a template.
  */
 export type Crawler = {
   extract(url: string, options?: ExtractOptions): Promise<ExtractResult>;

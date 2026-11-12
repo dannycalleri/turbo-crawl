@@ -404,7 +404,7 @@ An error gives `{ ok: false, code, message, policy }`. The code is one of these:
 - `TIMEOUT`
 - `AMBIGUOUS_TEMPLATE`
 
-A call rejects only in these cases: an argument is not valid, Chromium cannot start, or the agent fails when `authoring` is `"allowed"`.
+A call rejects only in these cases: an argument is not valid, Chromium cannot start, the agent fails when `authoring` is `"allowed"`, or the `store` breaks its contract or fails. For example, `listTemplates` does not give an array.
 
 ### `close()`
 
