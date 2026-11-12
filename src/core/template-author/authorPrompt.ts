@@ -6,6 +6,7 @@ import type { PatternAnswer } from "./checkUrlPattern";
 import type { SelectorValidation } from "./validateSelectors";
 
 export const AUTHOR_SELECTOR_KINDS = ["jsonld", "meta", "css", "table"] as const;
+export const PAIRS_SELECTOR_KINDS = ["css", "xpath"] as const;
 export const AUTHOR_ATTRIBUTES = ["textContent", "href", "src", "content", "json"] as const;
 const ANY_ATTRIBUTE = /^attr:[A-Za-z_:][-A-Za-z0-9_:.]*$/;
 export const MAX_SELECTORS_PER_FIELD = 4;
@@ -13,7 +14,7 @@ export const MAX_PROMPT_LINKS = 80;
 const MAX_EXAMPLE_LINKS = 10;
 
 export type AuthoredSelector = {
-    kind: typeof AUTHOR_SELECTOR_KINDS[number];
+    kind: typeof AUTHOR_SELECTOR_KINDS[number] | typeof PAIRS_SELECTOR_KINDS[number];
     selector: string;
     attribute: typeof AUTHOR_ATTRIBUTES[number] | `attr:${string}`;
 };
@@ -55,6 +56,12 @@ Rules:
 - The selector must point at the element holding just the value (e.g. the price element, not its whole card).
 - expectedSample is the raw text you expect the first selector to read on this page, or null if the field is absent.`;
 
+const PAIRS_RULES = `Pairs fields (type pairs):
+- A pairs field reads every label/value row inside one element: table rows, dt/dd pairs, or elements with a label child and a value child.
+- Give a css selector, or an xpath selector, for the element that holds all the rows, e.g. the specification table or list. This replaces the rule about the element holding just the value.
+- Do not point at one row. The template is reused on pages with other rows, so the selector must find the whole group.
+- expectedSample is the label of one row on this page, e.g. "Diameter", not its value.`;
+
 export const PATTERN_SYNTAX = `- Start with "/". Keep as literal text the parts that are the same on every page of the type. Replace the parts that change from page to page with a placeholder: ":" and a lowercase name, e.g. "/:brand/:slug--id:id.htm", "/search/index.htm?query=:q" or "/index.php?product_id=:id&route=product/product". ":id" stands for digits only; any other placeholder stands for any text without "/". Add query keys only when they identify the page; a URL can have more keys than its pattern.`;
 
 const PATTERN_RULES = `URL pattern:
@@ -65,10 +72,10 @@ ${PATTERN_SYNTAX}
 
 export function buildAuthorResponseSchema(schema: UserSchema, askPattern: boolean): unknown {
     const fieldNames = Object.keys(schema);
-    const selectorSchema = {
+    const selectorSchema = (kinds: readonly string[]) => ({
         type: "object",
         properties: {
-            kind: { type: "string", enum: [...AUTHOR_SELECTOR_KINDS] },
+            kind: { type: "string", enum: [...kinds] },
             selector: { type: "string" },
             attribute: {
                 type: "string",
@@ -77,16 +84,16 @@ export function buildAuthorResponseSchema(schema: UserSchema, askPattern: boolea
         },
         required: ["kind", "selector", "attribute"],
         additionalProperties: false,
-    };
-    const fieldSchema = {
+    });
+    const fieldSchema = (kinds: readonly string[]) => ({
         type: "object",
         properties: {
-            selectors: { type: "array", items: selectorSchema },
+            selectors: { type: "array", items: selectorSchema(kinds) },
             expectedSample: { type: ["string", "null"] },
         },
         required: ["selectors", "expectedSample"],
         additionalProperties: false,
-    };
+    });
 
     const links = { type: "array", items: { type: "string" }, maxItems: MAX_EXAMPLE_LINKS };
     const patternProperties = askPattern
@@ -98,7 +105,8 @@ export function buildAuthorResponseSchema(schema: UserSchema, askPattern: boolea
         properties: {
             fields: {
                 type: "object",
-                properties: Object.fromEntries(fieldNames.map(name => [name, fieldSchema])),
+                properties: Object.fromEntries(fieldNames.map(name =>
+                    [name, fieldSchema(schema[name] === "pairs" ? PAIRS_SELECTOR_KINDS : AUTHOR_SELECTOR_KINDS)])),
                 required: fieldNames,
                 additionalProperties: false,
             },
@@ -115,11 +123,14 @@ const patternAnswerSchema = z.object({
     otherTypeLinks: z.array(z.string()).transform(links => links.slice(0, MAX_EXAMPLE_LINKS)),
 });
 
-const authoredSelectorSchema = z.object({
-    kind: z.enum(AUTHOR_SELECTOR_KINDS),
+const selectorOfKinds = <K extends string>(kinds: readonly [K, ...K[]]) => z.object({
+    kind: z.enum(kinds),
     selector: z.string().min(1),
     attribute: z.union([z.enum(AUTHOR_ATTRIBUTES), z.string().regex(ANY_ATTRIBUTE).transform(value => value as `attr:${string}`)]),
 });
+const authoredSelectorSchema = selectorOfKinds(AUTHOR_SELECTOR_KINDS);
+// Keeps a selector of another kind, so the validation can tell the agent that a pairs field needs css or xpath.
+const pairsSelectorSchema = selectorOfKinds([...AUTHOR_SELECTOR_KINDS, ...PAIRS_SELECTOR_KINDS]);
 
 export function parseAuthorResponse(raw: unknown, schema: UserSchema): AuthorResponse {
     const fieldsShape = Object.fromEntries(
@@ -143,10 +154,11 @@ export function parseAuthorResponse(raw: unknown, schema: UserSchema): AuthorRes
     const fields: Record<string, AuthoredField> = {};
     for (const name of Object.keys(schema)) {
         const field = parsed.data.fields[name]!;
+        const selectorSchema = schema[name] === "pairs" ? pairsSelectorSchema : authoredSelectorSchema;
         fields[name] = {
             // Drop individual malformed selectors instead of failing the whole answer.
             selectors: field.selectors
-                .map(selector => authoredSelectorSchema.safeParse(selector))
+                .map(selector => selectorSchema.safeParse(selector))
                 .filter(result => result.success)
                 .map(result => result.data)
                 .slice(0, MAX_SELECTORS_PER_FIELD),
@@ -170,6 +182,7 @@ export function buildAuthorMessages(input: {
             content: [
                 `Write a template for these fields (name: type): ${formatSchema(input.schema)}`,
                 SELECTOR_RULES,
+                ...pairsRules(input.schema),
                 PATTERN_RULES,
                 formatPageContext(input.page),
                 formatLinks(input.links),
@@ -214,6 +227,7 @@ export function buildRepairMessages(input: {
         parts.push(`None of your working selectors is a css selector, and the template is matched to pages by its page-body selectors. Write a css selector for each field whose value is visible on the page: ${formatSchema(input.schema)}. Leave the others empty.`);
     }
     parts.push(askSelectors ? SELECTOR_RULES : "Your previous selectors all worked. Leave fields empty.");
+    if (askSelectors) parts.push(...pairsRules(input.bodyMissing ? input.schema : repairSchema));
     if (askPattern) {
         parts.push(
             `Your previous urlPattern ${JSON.stringify(input.previous.pattern?.urlPattern ?? null)} failed a check: ${input.patternFailure}. Write a new urlPattern, sameTypeLinks and otherTypeLinks.`,
@@ -227,6 +241,10 @@ export function buildRepairMessages(input: {
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: parts.join("\n\n") },
     ];
+}
+
+function pairsRules(schema: UserSchema): string[] {
+    return Object.values(schema).includes("pairs") ? [PAIRS_RULES] : [];
 }
 
 function formatLinks(links: string[]): string {
