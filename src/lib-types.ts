@@ -5,8 +5,11 @@
 export type FieldType = "string" | "number" | "boolean" | "date" | "url" | "text" | "pairs";
 
 export type CrawlerOptions = {
-  /** Root folder of the saved templates, e.g. a folder committed to your repository. */
-  dataDir: string;
+  /**
+   * Root folder of the saved templates, e.g. a folder committed to your repository.
+   * Required unless you give `store`. With `store`, it holds only the artifacts of `writeArtifacts`.
+   */
+  dataDir?: string;
   /** Sent on every request and matched against robots.txt. There is no default. */
   userAgent: string;
   /** "never" uses saved templates only and never starts an agent. */
@@ -25,6 +28,38 @@ export type CrawlerOptions = {
   provider?: LLMProvider;
   /** The model id that turbo-crawl sends to `provider` in each request. */
   model?: string;
+  /** Your own template storage, e.g. a database table. The default is the files under `dataDir`. */
+  store?: TemplateStore;
+};
+
+/** A template as JSON. turbo-crawl owns the other properties; keep them as they are. */
+export type TemplateJson = {
+  id: string;
+  domain: string;
+  urlPatterns: string[];
+  [property: string]: unknown;
+};
+
+export type StoredTemplate = {
+  /** Your id for the template. turbo-crawl gives it back in updates and as `templateFit.templatePath`. */
+  ref: string;
+  /** turbo-crawl validates it, and ignores it with a warning when it is not a valid template. */
+  template: unknown;
+};
+
+export type TemplateStore = {
+  /** The field templates of a domain, e.g. "shop.example" (lower case, no "www."). */
+  listTemplates(domain: string): Promise<StoredTemplate[]>;
+  listListingTemplates(domain: string): Promise<StoredTemplate[]>;
+  /** Saves the template and resolves to its ref. A template with the same `id` replaces the old one. */
+  saveTemplate(template: TemplateJson): Promise<string>;
+  saveListingTemplate(template: TemplateJson): Promise<string>;
+  /**
+   * Reads the template, calls `update`, and saves what it returns, as one operation:
+   * two updates of one template at the same time must not lose a change.
+   */
+  updateTemplate(ref: string, update: (template: TemplateJson) => TemplateJson): Promise<void>;
+  updateListingTemplate(ref: string, update: (template: TemplateJson) => TemplateJson): Promise<void>;
 };
 
 export type LLMMessage = {

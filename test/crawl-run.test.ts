@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import {
@@ -31,6 +31,7 @@ import {
 import type { ListingLinks } from "../src/core/template-author/validateListingSelectors.ts";
 import type { LinkGroup } from "../src/core/extraction/links.ts";
 import type { ClassifyPageInput, PageClassification } from "../src/core/template-author/classifyPage.ts";
+import { memoryStore } from "./fixtures/memory-store.ts";
 
 const tempDirs: string[] = [];
 
@@ -666,6 +667,67 @@ describe("startCrawl with a snapshot", () => {
 
     expect(outcome.kind).toBe("item");
     expect(harness.classifyCalls).toHaveLength(0);
+    expect(harness.authorCalls).toHaveLength(1);
+  });
+});
+
+describe("startCrawl with a caller's template store", () => {
+  const listingTemplate: ListingTemplate = {
+    id: "listing_fixture",
+    kind: "listing",
+    domain: "example.com",
+    urlPatterns: ["/category/:slug"],
+    itemLinks: ["ul.grid a.card"],
+    nextPage: [],
+    pageLinks: [],
+    itemUrlPatterns: ["/products/:slug"],
+    createdFromUrl: "https://example.com/category/clocks",
+    createdAt: "2026-11-05T00:00:00.000Z",
+  };
+
+  it("reads a fitting template from the store, records the new URL pattern through updateTemplate, and gives the ref", async () => {
+    const memory = memoryStore({ templates: { "row-7": createTemplate({ urlPatterns: ["/news/:slug"] }) } });
+    const harness = await createHarness();
+
+    const outcome = asItem(await startCrawl(fieldsInput({ title: "string" }), { ...harness.options, store: memory.store, writeArtifacts: false }, harness.deps));
+
+    expect(outcome.templateFit).toEqual({ templateId: "template_fixture", templatePath: "row-7", matchedPattern: false });
+    expect(memory.calls).toEqual(["listListingTemplates", "listTemplates", "updateTemplate"]);
+    expect((memory.tables.templates.get("row-7") as ExtractionTemplate).urlPatterns).toEqual(["/news/:slug", "/final"]);
+    expect(await readdir(harness.store.domainPath).catch(() => [])).toEqual([]);
+  });
+
+  it("records a new listing URL pattern through updateListingTemplate", async () => {
+    const memory = memoryStore({ listings: { "row-9": listingTemplate } });
+    const links = { items: [{ url: "https://example.com/products/a-1", text: "A", cssPath: "a.card" }], paginationUrls: [] };
+    const harness = await createHarness({ listingLinks: () => links });
+
+    const outcome = await startCrawl(fieldsInput({ title: "string" }), { ...harness.options, store: memory.store, writeArtifacts: false }, harness.deps);
+
+    expect(outcome).toMatchObject({ kind: "listing", templateFit: { templatePath: "row-9", matchedPattern: false } });
+    expect(memory.calls).toContain("updateListingTemplate");
+    expect((memory.tables.listings.get("row-9") as ListingTemplate).urlPatterns).toEqual(["/category/:slug", "/final"]);
+  });
+
+  it("saves an authored template to the store and gives its ref", async () => {
+    const memory = memoryStore();
+    const harness = await createHarness();
+
+    const outcome = asItem(await startCrawl({ ...fieldsInput({ title: "string" }), expect: "detail" }, { ...harness.options, store: memory.store, writeArtifacts: false }, harness.deps));
+
+    expect(outcome.templateFit.templatePath).toBe("template:template_fixture");
+    expect(memory.tables.templates.has("template:template_fixture")).toBe(true);
+    expect(await readdir(harness.store.domainPath).catch(() => [])).toEqual([]);
+  });
+
+  it("ignores an invalid template from the store with a warning that names its ref", async () => {
+    const { schema: _schema, ...noSchema } = createTemplate();
+    const memory = memoryStore({ templates: { "row-3": noSchema } });
+    const harness = await createHarness();
+
+    const outcome = await startCrawl({ ...fieldsInput({ title: "string" }), expect: "detail" }, { ...harness.options, store: memory.store, writeArtifacts: false }, harness.deps);
+
+    expect(outcome.warnings).toContain("The template row-3 from the store was ignored: Template artifact is missing required template fields.");
     expect(harness.authorCalls).toHaveLength(1);
   });
 });
