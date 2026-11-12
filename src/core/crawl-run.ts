@@ -1,4 +1,4 @@
-import { withRenderedPage, type BrowserSessionOptions, type RenderedPageContext } from "./crawler.ts";
+import { withRenderedPage, withSnapshotPage, type BrowserSessionOptions, type RenderedPageContext } from "./crawler.ts";
 import type { PagePacket } from "./types.ts";
 import type { LLMProvider } from "./llm-extractor/providers/LLMProvider.ts";
 import type { UserSchema } from "./llm-extractor/types.ts";
@@ -51,6 +51,8 @@ export type CrawlStartInput = {
   expect?: "detail" | "listing";
   /** Only this saved listing template may read the page, and no agent is asked. */
   listingTemplatePath?: string;
+  /** HTML that the caller rendered at `target`. turbo-crawl reads it as a detail page and does not fetch the page or robots.txt. */
+  snapshotHtml?: string;
 };
 
 export type TemplateFit = {
@@ -120,6 +122,12 @@ export type StartCrawlDependencies = {
     handler: (context: RenderedPageContext) => Promise<T> | T,
     options?: BrowserSessionOptions,
   ): Promise<T>;
+  withSnapshotPage<T>(
+    url: string,
+    html: string,
+    handler: (context: RenderedPageContext) => Promise<T> | T,
+    options?: BrowserSessionOptions,
+  ): Promise<T>;
   createDomainStore(input: { targetUrl: string; rootPath?: string }): DomainStore;
   listTemplatesForDomain(store: DomainStore): Promise<ReuseDiscoveryResult<TemplateMatchCandidate>>;
   addPatternToTemplate(templatePath: string, url: string): Promise<void>;
@@ -148,6 +156,7 @@ export type StartCrawlDependencies = {
 
 export const defaultStartCrawlDependencies: StartCrawlDependencies = {
   withRenderedPage: (url, handler, options) => withRenderedPage(url, handler, options),
+  withSnapshotPage: (url, html, handler, options) => withSnapshotPage(url, html, handler, options),
   createDomainStore,
   listTemplatesForDomain,
   addPatternToTemplate,
@@ -174,24 +183,33 @@ export function createCrawlRunner(
 }
 
 export async function startCrawl(
-  input: CrawlStartInput,
+  requested: CrawlStartInput,
   options: CrawlOptions,
   deps: StartCrawlDependencies = defaultStartCrawlDependencies,
 ): Promise<CrawlOutcome> {
+  const snapshotHtml = requested.snapshotHtml;
+  const input: CrawlStartInput = snapshotHtml === undefined
+    ? requested
+    : { ...requested, expect: "detail", listingTemplatePath: undefined };
   const progress = options.onProgress ?? (() => {});
   let userSchema = input.schema;
   const fieldsGiven = Object.keys(userSchema).length > 0;
   const store = deps.createDomainStore({ targetUrl: input.target, rootPath: options.dataDir });
 
-  const robots = options.robots ?? null;
+  const robots = snapshotHtml === undefined ? options.robots ?? null : null;
   const robotsStatus: RobotsStatus = robots ? await robots.check(input.target) : "unknown";
   if (robotsStatus === "disallowed") {
     throw new CrawlFailure("ROBOTS_DISALLOWED", `robots.txt disallows ${input.target} for this user agent. Choose another URL, or turn off the robots check only with the site's permission.`, null);
   }
 
-  progress(`Rendering ${input.target}…`);
+  progress(snapshotHtml === undefined ? `Rendering ${input.target}…` : `Reading the snapshot of ${input.target}…`);
 
-  return renderOrTimeout(input.target, () => deps.withRenderedPage(input.target, async ({ page, pagePacket }) => {
+  const openPage = <T>(handler: (context: RenderedPageContext) => Promise<T>): Promise<T> =>
+    snapshotHtml === undefined
+      ? deps.withRenderedPage(input.target, handler, { userAgent: options.userAgent })
+      : deps.withSnapshotPage(input.target, snapshotHtml, handler, { userAgent: options.userAgent });
+
+  return renderOrTimeout(input.target, () => openPage(async ({ page, pagePacket }) => {
     const finalUrl = pagePacket.finalUrl || pagePacket.url;
     let policy = buildPolicy(pagePacket, robotsStatus);
     if (robots && finalUrl !== input.target && (await robots.check(finalUrl)) === "disallowed") {
@@ -443,7 +461,7 @@ export async function startCrawl(
       artifactFolder,
       warnings,
     };
-  }, { userAgent: options.userAgent }));
+  }));
 }
 
 type ListingFit = { candidate: ListingTemplateArtifact; links: ListingLinks; matchedPattern: boolean };

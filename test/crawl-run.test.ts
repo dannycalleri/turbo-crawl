@@ -613,6 +613,52 @@ describe("listing pages", () => {
   });
 });
 
+describe("startCrawl with a snapshot", () => {
+  const snapshotInput = (extra: Partial<CrawlStartInput> = {}): CrawlStartInput => ({
+    ...fieldsInput({ title: "string" }),
+    snapshotHtml: "<html><body><h1>Fixture</h1></body></html>",
+    ...extra,
+  });
+
+  it("opens the caller's HTML instead of rendering, and does not read robots.txt", async () => {
+    const harness = await createHarness({ robots: { "https://example.com/final": "disallowed" } });
+
+    const outcome = asItem(await startCrawl(snapshotInput(), harness.options, harness.deps));
+
+    expect(harness.renders).toBe(0);
+    expect(harness.snapshots).toEqual([{ url: "https://example.com/final", html: "<html><body><h1>Fixture</h1></body></html>" }]);
+    expect(harness.robotsChecks).toEqual([]);
+    expect(outcome.policy.robots).toBe("unknown");
+  });
+
+  it("treats the snapshot as a detail page, whatever the caller expects", async () => {
+    const listingTemplate: ListingTemplate = {
+      id: "listing_fixture",
+      kind: "listing",
+      domain: "example.com",
+      urlPatterns: ["/final"],
+      itemLinks: ["ul.grid a.card"],
+      nextPage: [],
+      pageLinks: [],
+      itemUrlPatterns: ["/products/:slug"],
+      createdFromUrl: "https://example.com/final",
+      createdAt: "2026-11-05T00:00:00.000Z",
+    };
+    const links = { items: [{ url: "https://example.com/products/a-1", text: "A", cssPath: "a.card" }], paginationUrls: [] };
+    const harness = await createHarness({
+      listingLinks: () => links,
+      classification: { kind: "listing", template: listingTemplate, ...links, calls: [], provider: "claude", warnings: [] },
+    });
+    await saveListingTemplate(harness.store, listingTemplate);
+
+    const outcome = await startCrawl(snapshotInput({ expect: "listing" }), harness.options, harness.deps);
+
+    expect(outcome.kind).toBe("item");
+    expect(harness.classifyCalls).toHaveLength(0);
+    expect(harness.authorCalls).toHaveLength(1);
+  });
+});
+
 function asItem(outcome: CrawlOutcome): ItemOutcome {
   if (outcome.kind !== "item") throw new Error(`expected an item outcome, got ${outcome.kind}`);
   return outcome;
@@ -639,6 +685,7 @@ async function createHarness(config: {
   const authorCalls: AuthorTemplateInput[] = [];
   const classifyCalls: ClassifyPageInput[] = [];
   const state = { providerResolutions: 0, suggestCalls: 0, renders: 0 };
+  const snapshots: Array<{ url: string; html: string }> = [];
   const robotsChecks: string[] = [];
   const provider: LLMProvider = {
     name: "claude",
@@ -652,6 +699,10 @@ async function createHarness(config: {
       state.renders += 1;
       if (config.renderError) throw config.renderError;
       return handler({ page: {} as Page, pagePacket: { ...createPagePacket(), ...config.pagePacket } });
+    },
+    async withSnapshotPage(url, html, handler) {
+      snapshots.push({ url, html });
+      return handler({ page: {} as Page, pagePacket: { ...createPagePacket(), url, finalUrl: url, ...config.pagePacket } });
     },
     createDomainStore: (input) => createDomainStore({ ...input, rootPath }),
     listTemplatesForDomain,
@@ -698,6 +749,7 @@ async function createHarness(config: {
     authorCalls,
     classifyCalls,
     robotsChecks,
+    snapshots,
     get renders() {
       return state.renders;
     },
