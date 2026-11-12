@@ -329,6 +329,7 @@ describe("provider option", () => {
 
     expect(() => createCrawler({ ...options, provider: {} as LLMProvider }, deps)).toThrow("options.provider needs a completeStructured(request) function");
     expect(() => createCrawler({ ...options, provider: callerProvider().provider, model: " " }, deps)).toThrow("options.model");
+    expect(() => createCrawler({ ...options, model: "some-model" }, deps)).toThrow("options.model needs options.provider");
   });
 });
 

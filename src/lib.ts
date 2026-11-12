@@ -268,6 +268,9 @@ function validateOptions(options: CrawlerOptions): void {
   if (options.model !== undefined && (typeof options.model !== "string" || options.model.trim() === "")) {
     fail("options.model must be a non-empty model id.");
   }
+  if (options.model !== undefined && options.provider === undefined) {
+    fail("options.model needs options.provider. To choose the model of claude, codex or LM Studio, set TURBO_CRAWL_MODEL.");
+  }
   for (const name of ["navigationTimeoutMs", "settleTimeoutMs"] as const) {
     const value = options[name];
     if (value !== undefined && (!Number.isFinite(value) || value <= 0)) fail(`options.${name} must be a number of milliseconds above 0.`);
