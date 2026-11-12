@@ -71,27 +71,34 @@ function normalizeNumber(value: unknown): number | null {
 
     if (!raw) return null;
 
-    const hasComma = raw.includes(",");
-    const hasDot = raw.includes(".");
+    const text = withDotDecimal(raw);
+    if (text === null) return null;
 
-    let normalized = raw;
-
-    if (hasComma && hasDot) {
-        const lastComma = raw.lastIndexOf(",");
-        const lastDot = raw.lastIndexOf(".");
-
-        if (lastComma > lastDot) {
-            normalized = raw.replace(/\./g, "").replace(",", ".");
-        } else {
-            normalized = raw.replace(/,/g, "");
-        }
-    } else if (hasComma && !hasDot) {
-        normalized = raw.replace(",", ".");
-    }
-
-    const parsed = Number(normalized);
+    const parsed = Number(text);
 
     return Number.isFinite(parsed) ? parsed : null;
+}
+
+function withDotDecimal(raw: string): string | null {
+    const lastComma = raw.lastIndexOf(",");
+    const lastDot = raw.lastIndexOf(".");
+    if (lastComma >= 0 && lastDot >= 0) {
+        return lastComma > lastDot
+            ? raw.replace(/\./g, "").replace(",", ".")
+            : raw.replace(/,/g, "");
+    }
+
+    const separator = lastComma >= 0 ? "," : lastDot >= 0 ? "." : null;
+    if (separator === null) return raw;
+
+    const [whole = "", ...groups] = raw.split(separator);
+    if (groups.length > 1) {
+        return groups.every(group => group.length === 3) ? whole + groups.join("") : null;
+    }
+    const fraction = groups[0] ?? "";
+    // "0.500" is half, not five hundred.
+    const isThousands = fraction.length === 3 && !/^-?0$/.test(whole);
+    return isThousands ? whole + fraction : `${whole}.${fraction}`;
 }
 
 export function extractNumberTokens(value: unknown): string[] {
