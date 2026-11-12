@@ -72,6 +72,58 @@ describe("pairs field reader", () => {
     expect(result.warnings).toEqual(['Label "Materiale" appears more than once; kept the first value.']);
   });
 
+  it("does not read a heading and a group of one row as one pair", async () => {
+    const result = await readSpecs(`<div id="specs">
+      <div><h3>Cassa</h3><div><span>Materiale</span><span>Acciaio</span></div></div>
+      <div><h3>Movimento</h3><div><span>Calibro</span><span>3235</span></div></div>
+      <div><span>Marca</span><span>Rolex</span></div>
+    </div>`, "#specs");
+
+    expect(result.value).toEqual({ Materiale: "Acciaio", Calibro: "3235", Marca: "Rolex" });
+  });
+
+  it("does not read a title and a group of one row as one pair, whatever the title or the group element", async () => {
+    const row = (label: string, value: string) => `<div class="row"><span>${label}</span><span>${value}</span></div>`;
+    const layouts = [
+      `<div><h3>Cassa</h3><ul><li><span>Materiale</span><span>Acciaio</span></li></ul></div>`,
+      `<div><header><h3>Cassa</h3></header>${row("Materiale", "Acciaio")}</div>`,
+      `<div><strong>Cassa</strong>${row("Materiale", "Acciaio")}</div>`,
+      `<div><div class="title">Cassa</div>${row("Materiale", "Acciaio")}</div>`,
+    ];
+    for (const group of layouts) {
+      const result = await readSpecs(`<div id="specs">${group}<div><h3>Movimento</h3>${row("Calibro", "3235")}</div>${row("Marca", "Rolex")}</div>`, "#specs");
+
+      expect(result.value).toEqual({ Materiale: "Acciaio", Calibro: "3235", Marca: "Rolex" });
+    }
+  });
+
+  it("reads the same pairs whatever the CSS of the page, as a snapshot without stylesheets does", async () => {
+    const result = await readSpecs(`<style>.v { display: flex; }</style><ul class="specs">
+      <li><span>Diametro</span><span class="v"><b>40</b> <small>mm</small></span></li>
+      <li><span>Marca</span><span>Rolex</span></li><li><span>Modello</span><span>Submariner</span></li>
+    </ul>`, "ul.specs");
+
+    expect(result.value).toEqual({ Diametro: "40 mm", Marca: "Rolex", Modello: "Submariner" });
+  });
+
+  it("reads cards with a heading as the label", async () => {
+    const result = await readSpecs(`<div id="specs">
+      <div><h4>Marca</h4><p>Rolex</p></div><div><h4>Modello</h4><p>Submariner</p></div><div><h4>Diametro</h4><p>40 mm</p></div>
+    </div>`, "#specs");
+
+    expect(result.value).toEqual({ Marca: "Rolex", Modello: "Submariner", Diametro: "40 mm" });
+  });
+
+  it("reads a value made of two parts, such as a number and its unit, as one value", async () => {
+    const result = await readSpecs(`<ul class="specs">
+      <li><span>Diametro</span><span><b>40</b> <small>mm</small></span></li>
+      <li><span>Spessore</span><span><b>12</b> <small>mm</small></span></li>
+      <li><span>Marca</span><span><a href="#">Rolex</a><span>(12)</span></span></li>
+    </ul>`, "ul.specs");
+
+    expect(result.value).toEqual({ Diametro: "40 mm", Spessore: "12 mm", Marca: "Rolex(12)" });
+  });
+
   it("keeps the first value of a repeated label, with a warning that names it", async () => {
     const result = await readSpecs(`<table class="specs">
       <tr><td>Marca</td><td>Rolex</td></tr><tr><td>Marca</td><td>Tudor</td></tr>

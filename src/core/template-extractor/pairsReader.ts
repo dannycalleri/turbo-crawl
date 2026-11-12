@@ -47,19 +47,24 @@ function readRows(container: Element): Array<[string, string]> {
 
     const textChildren = (element: Element) => Array.from(element.children).filter(child => clean(child) !== "");
     const pairMemo = new Map<Element, boolean>();
-    const rowsMemo = new Map<Element, boolean>();
-    const holdsRows = (element: Element): boolean => {
-        if (!rowsMemo.has(element)) {
-            rowsMemo.set(element, element.matches("tr, dt") || element.querySelector("tr, dt") !== null ||
-                isSiblingPair(element) || Array.from(element.children).some(holdsRows));
+    const groupMemo = new Map<Element, boolean>();
+    // Inline parts are one value, such as <b>40</b> <small>mm</small>. A pair of any other element is a row,
+    // so an element beside it is a group title, not a label. Tags, not computed style: a snapshot loads
+    // no stylesheet, and a live page and its snapshot must give the same pairs.
+    const INLINE = new Set(["SPAN", "B", "STRONG", "I", "EM", "SMALL", "A", "SUP", "SUB", "ABBR", "CODE", "LABEL", "FONT", "MARK", "U", "S"]);
+    const holdsGroup = (element: Element): boolean => {
+        if (!groupMemo.has(element)) {
+            const pairs = [element, ...Array.from(element.querySelectorAll("*"))].filter(isSiblingPair);
+            groupMemo.set(element, element.matches("tr, dt") || element.querySelector("tr, dt") !== null ||
+                pairs.length >= 2 || pairs.some(pair => !INLINE.has(pair.tagName)));
         }
-        return rowsMemo.get(element)!;
+        return groupMemo.get(element)!;
     };
     const isSiblingPair = (element: Element): boolean => {
         if (!pairMemo.has(element)) {
             const children = Array.from(element.children);
             pairMemo.set(element, !STRUCTURE.has(element.tagName) && children.length === 2 &&
-                children.every(child => clean(child) !== "" && !holdsRows(child)));
+                children.every(child => clean(child) !== "" && !holdsGroup(child)));
         }
         return pairMemo.get(element)!;
     };
