@@ -92,7 +92,7 @@ export function createCrawler(
         return resolved.create();
       },
       get model() {
-        return callerProvider ? options.model ?? null : resolved?.model ?? null;
+        return options.model ?? resolved?.model ?? null;
       },
       dataDir: options.dataDir,
       userAgent: options.userAgent,

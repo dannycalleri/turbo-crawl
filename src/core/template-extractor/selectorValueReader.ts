@@ -1,4 +1,4 @@
-import type { Page } from "playwright";
+import type { Locator, Page } from "playwright";
 import type { PagePacket } from "../types";
 import type { SelectorCandidate } from "../templating/types";
 import type { FieldType } from "../llm-extractor/types";
@@ -317,32 +317,29 @@ export function readJsonPath(data: unknown, path: string): unknown {
     return current;
 }
 
+export async function locateFirst(
+    page: Page,
+    selector: SelectorCandidate,
+): Promise<{ first: Locator | null; warnings: string[] }> {
+    const locator = page.locator(selector.kind === "xpath" ? `xpath=${selector.selector}` : selector.selector);
+    const count = await locator.count();
+
+    if (count === 0) return { first: null, warnings: [`Selector matched no elements: ${selector.selector}`] };
+
+    return {
+        first: locator.first(),
+        warnings: count > 1 ? [`Selector matched ${count} elements; using the first match.`] : [],
+    };
+}
+
 async function readDomSelector(
     page: Page,
     selector: SelectorCandidate,
     fieldType?: FieldType,
 ): Promise<SelectorValueReadResult> {
-    const warnings: string[] = [];
-    const locatorSelector =
-        selector.kind === "xpath"
-            ? `xpath=${selector.selector}`
-            : selector.selector;
+    const { first, warnings } = await locateFirst(page, selector);
+    if (first === null) return { rawValue: null, warnings };
 
-    const locator = page.locator(locatorSelector);
-    const count = await locator.count();
-
-    if (count === 0) {
-        return {
-            rawValue: null,
-            warnings: [`Selector matched no elements: ${selector.selector}`],
-        };
-    }
-
-    if (count > 1) {
-        warnings.push(`Selector matched ${count} elements; using the first match.`);
-    }
-
-    const first = locator.first();
     if (fieldType === "text" && selector.attribute === "textContent") {
         return { rawValue: normalizeBlockText(await first.evaluate(readCleanText)), warnings };
     }
