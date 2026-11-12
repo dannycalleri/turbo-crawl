@@ -8,6 +8,9 @@ export function isFieldType(value: unknown): value is FieldType {
 
 export type UserSchema = Record<string, FieldType>;
 
+/** A pairs value with fewer label/value pairs than this is null. */
+export const MIN_PAIRS = 3;
+
 export type FieldEvidence = {
   sourceNodeId: string | null;
   quotedText: string | null;
