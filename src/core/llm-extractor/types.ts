@@ -56,7 +56,7 @@ export type LLMExtractionResult = {
   evidence: Record<string, FieldEvidence>;
   fieldReports: Record<string, FieldReport>;
 
-  provider: import("./providers/LLMProvider").ProviderName;
+  provider: import("./providers/LLMProvider").LLMProvider["name"];
   model: string;
   llmUsed: true;
 
