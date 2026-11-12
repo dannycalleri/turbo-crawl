@@ -5,6 +5,7 @@ import { createCrawler, type CrawlerOptions, type LibraryDependencies } from "..
 import { createCrawlRunner, defaultStartCrawlDependencies } from "../src/core/crawl-run.ts";
 import { createRobotsChecker, type RobotsFetch } from "../src/core/policy/robots.ts";
 import type { PagePacket } from "../src/core/types.ts";
+import type { RenderedPageContext } from "../src/core/crawler.ts";
 import type { Page } from "playwright";
 import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
@@ -60,7 +61,11 @@ function fakes(startCrawl: (input: CrawlStartInput) => Promise<CrawlOutcome>) {
   const started: CrawlStartInput[] = [];
   let providerResolutions = 0;
   const deps: LibraryDependencies = {
-    createBrowserSession: () => ({ withRenderedPage: async () => { throw new Error("not rendered"); }, close: async () => {} }),
+    createBrowserSession: () => ({
+      withRenderedPage: async () => { throw new Error("not rendered"); },
+      withSnapshotPage: async () => { throw new Error("not rendered"); },
+      close: async () => {},
+    }),
     createRobotsChecker: () => ({ check: async () => "allowed" }),
     resolveProvider: () => {
       providerResolutions += 1;
@@ -203,6 +208,62 @@ describe("createCrawler", () => {
   });
 });
 
+describe("extractHtml", () => {
+  it("passes the snapshot to the runner as a detail page and maps the result like extract", async () => {
+    const f = fakes(async () => article);
+    const crawler = createCrawler(options, f.deps);
+
+    const result = await crawler.extractHtml({
+      url: "https://site.com/news/a",
+      html: "<h1>Rolex</h1>",
+      fields: { headline: "string" },
+      require: ["headline"],
+    });
+
+    expect(f.started[0]).toEqual({
+      target: "https://site.com/news/a",
+      schema: { headline: "string" },
+      require: ["headline"],
+      expect: "detail",
+      snapshotHtml: "<h1>Rolex</h1>",
+    });
+    expect(result).toMatchObject({ ok: true, finalUrl: "https://site.com/news/a", data: { headline: "Rolex", date: null } });
+  });
+
+  it("rejects a URL that is not absolute http or https", async () => {
+    const crawler = createCrawler(options, fakes(async () => article).deps);
+
+    for (const url of ["/item/1", "ftp://site.com/item/1", "not a url"]) {
+      await expect(crawler.extractHtml({ url, html: "<p>x</p>" })).rejects.toThrow("url must be an absolute http or https URL");
+    }
+  });
+
+  it("rejects empty HTML", async () => {
+    const crawler = createCrawler(options, fakes(async () => article).deps);
+
+    await expect(crawler.extractHtml({ url: "https://site.com/a", html: "  " })).rejects.toThrow("html must be the non-empty HTML");
+  });
+
+  it("rejects HTML larger than 10 MB, counted in UTF-8 bytes", async () => {
+    const f = fakes(async () => article);
+    const crawler = createCrawler(options, f.deps);
+    const accented = "é".repeat(5 * 1024 * 1024 + 1);
+
+    await expect(crawler.extractHtml({ url: "https://site.com/a", html: accented })).rejects.toThrow("larger than 10 MB");
+    expect(f.started).toHaveLength(0);
+  });
+
+  it("names extractHtml in a field type error", async () => {
+    const crawler = createCrawler(options, fakes(async () => article).deps);
+
+    await expect(crawler.extractHtml({
+      url: "https://site.com/a",
+      html: "<p>x</p>",
+      fields: { price: "money" as "number" },
+    })).rejects.toThrow("extractHtml: field \"price\" has the unknown type");
+  });
+});
+
 describe("concurrent calls", () => {
   function pagedFakes(renderMs: () => Promise<void>) {
     let open = 0;
@@ -215,8 +276,8 @@ describe("concurrent calls", () => {
     };
     const deps: LibraryDependencies = {
       ...fakes(async () => article).deps,
-      createBrowserSession: () => ({
-        async withRenderedPage(_url, handler) {
+      createBrowserSession: () => {
+        const openPage = async <T>(handler: (context: RenderedPageContext) => T | Promise<T>): Promise<T> => {
           open += 1;
           maxOpen = Math.max(maxOpen, open);
           try {
@@ -225,16 +286,22 @@ describe("concurrent calls", () => {
           } finally {
             open -= 1;
           }
-        },
-        close: async () => {
-          closed = true;
-        },
-      }),
+        };
+        return {
+          withRenderedPage: (_url, handler) => openPage(handler),
+          withSnapshotPage: (_url, _html, handler) => openPage(handler),
+          close: async () => {
+            closed = true;
+          },
+        };
+      },
       createRobotsChecker: userAgent => createRobotsChecker({ userAgent, fetch }),
       createRunner: (runnerOptions, session) => ({
         async startCrawl(input) {
+          const outcome = () => ({ ...article, target: input.target });
+          if (input.snapshotHtml !== undefined) return session.withSnapshotPage(input.target, input.snapshotHtml, outcome);
           await runnerOptions.robots?.check(input.target);
-          return session.withRenderedPage(input.target, () => ({ ...article, target: input.target }));
+          return session.withRenderedPage(input.target, outcome);
         },
       }),
     };
@@ -269,6 +336,19 @@ describe("concurrent calls", () => {
     await closing;
     expect(f.closed).toBe(true);
     await expect(crawler.extract("https://a.com/news/three")).rejects.toThrow("closed");
+  });
+
+  it("counts extractHtml calls against maxConcurrentPages, with no robots.txt fetch", async () => {
+    const f = pagedFakes(() => new Promise(resolve => setTimeout(resolve, 5)));
+    const crawler = createCrawler({ ...options, maxConcurrentPages: 2 }, f.deps);
+    const urls = Array.from({ length: 6 }, (_, i) => `https://a.com/news/item-${i}`);
+
+    const results = await Promise.all(urls.map((url, i) =>
+      i % 2 ? crawler.extract(url) : crawler.extractHtml({ url, html: "<p>snapshot</p>" })));
+
+    expect(results.every(result => result.ok)).toBe(true);
+    expect(f.maxOpen).toBe(2);
+    expect(f.robotsFetches).toEqual(["https://a.com/robots.txt"]);
   });
 
   it("rejects a maxConcurrentPages below 1", () => {

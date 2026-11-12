@@ -1,4 +1,4 @@
-import type { Browser, Page, Response } from "playwright";
+import type { Browser, BrowserContext, Page, Response } from "playwright";
 import { launchChromium } from "./browserInstall.ts";
 import { extractMetadata } from "./extraction/metadata";
 import { extractJsonLd } from "./extraction/jsonld";
@@ -48,6 +48,7 @@ const defaultCrawlerDependencies: CrawlerDependencies = {
 export const DEFAULT_NAVIGATION_TIMEOUT_MS = 30_000;
 export const DEFAULT_SETTLE_TIMEOUT_MS = 10_000;
 const MAX_VISIBLE_BLOCKS = 250;
+const PAGE_VIEWPORT = { width: 1440, height: 1200 };
 
 export type BrowserSessionOptions = {
   userAgent?: string;
@@ -60,6 +61,12 @@ export type BrowserSession = {
     url: string,
     handler: (context: RenderedPageContext) => Promise<T> | T,
   ): Promise<T>;
+  /** Opens `html` as the page at `url`: no page scripts run and no request leaves the browser. */
+  withSnapshotPage<T>(
+    url: string,
+    html: string,
+    handler: (context: RenderedPageContext) => Promise<T> | T,
+  ): Promise<T>;
   close(): Promise<void>;
 };
 
@@ -68,26 +75,46 @@ export function createBrowserSession(
   deps: CrawlerDependencies = defaultCrawlerDependencies,
 ): BrowserSession {
   let browser: Promise<Browser> | null = null;
+  const launched = (): Promise<Browser> => {
+    if (!browser) {
+      const launching: Promise<Browser> = deps.launchBrowser().catch(error => {
+        if (browser === launching) browser = null;
+        throw error;
+      });
+      browser = launching;
+    }
+    return browser;
+  };
+  const pageOptions = () => ({
+    viewport: PAGE_VIEWPORT,
+    userAgent: options.userAgent ?? DEFAULT_USER_AGENT,
+  });
 
   return {
     async withRenderedPage(url, handler) {
-      if (!browser) {
-        const launching: Promise<Browser> = deps.launchBrowser().catch(error => {
-          if (browser === launching) browser = null;
-          throw error;
-        });
-        browser = launching;
-      }
-      const page = await (await browser).newPage({
-        viewport: { width: 1440, height: 1200 },
-        userAgent: options.userAgent ?? DEFAULT_USER_AGENT,
-      });
+      const page = await (await launched()).newPage(pageOptions());
 
       try {
         const pagePacket = await renderPage(page, url, options, deps);
         return await handler({ page, pagePacket });
       } finally {
         await page.close();
+      }
+    },
+    async withSnapshotPage(url, html, handler) {
+      // serviceWorkers: a worker's requests would bypass page.route.
+      const context: BrowserContext = await (await launched()).newContext({
+        ...pageOptions(),
+        javaScriptEnabled: false,
+        serviceWorkers: "block",
+      });
+
+      try {
+        const page = await context.newPage();
+        const pagePacket = await openSnapshot(page, url, html, options, deps);
+        return await handler({ page, pagePacket });
+      } finally {
+        await context.close();
       }
     },
     async close() {
@@ -123,6 +150,22 @@ export async function withRenderedPage<T>(
   }
 }
 
+export async function withSnapshotPage<T>(
+  url: string,
+  html: string,
+  handler: (context: RenderedPageContext) => Promise<T> | T,
+  options: BrowserSessionOptions = {},
+  deps: CrawlerDependencies = defaultCrawlerDependencies,
+): Promise<T> {
+  const session = createBrowserSession(options, deps);
+
+  try {
+    return await session.withSnapshotPage(url, html, handler);
+  } finally {
+    await session.close();
+  }
+}
+
 async function renderPage(
   page: Page,
   url: string,
@@ -146,6 +189,40 @@ async function renderPage(
 
   await deps.dismissCookieBanner(page);
 
+  return capturePagePacket(page, url, response, deps);
+}
+
+async function openSnapshot(
+  page: Page,
+  url: string,
+  html: string,
+  options: BrowserSessionOptions,
+  deps: CrawlerDependencies,
+): Promise<PagePacket> {
+  await deps.installPageContextHelpers(page);
+  // The browser requests the normalised URL: lower-case host, "/" path, no fragment.
+  const requested = new URL(url);
+  requested.hash = "";
+  await page.route("**/*", route =>
+    route.request().url() === requested.href && route.request().isNavigationRequest()
+      ? route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: html })
+      : route.abort());
+
+  await page.goto(url, {
+    waitUntil: "domcontentloaded",
+    timeout: options.navigationTimeoutMs ?? DEFAULT_NAVIGATION_TIMEOUT_MS,
+  });
+
+  // The caller fetched the page, so the fulfilled 200 is not an HTTP status that turbo-crawl saw.
+  return { ...(await capturePagePacket(page, url, null, deps)), finalUrl: url };
+}
+
+async function capturePagePacket(
+  page: Page,
+  url: string,
+  response: Response | null,
+  deps: CrawlerDependencies,
+): Promise<PagePacket> {
   const finalUrl = page.url();
   const html = await page.content();
   const title = await page.title();

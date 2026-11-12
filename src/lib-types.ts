@@ -29,6 +29,13 @@ export type ExtractOptions = {
   require?: string[];
 };
 
+export type ExtractHtmlInput = ExtractOptions & {
+  /** The absolute http or https URL where you rendered the page. Relative links resolve against it. */
+  url: string;
+  /** The rendered HTML of the page, at most 10 MB. */
+  html: string;
+};
+
 export type PolicyInfo = {
   robots: "allowed" | "disallowed" | "unknown";
   tdmReservation: boolean | null;
@@ -117,6 +124,11 @@ export type LinksResult = LinksSuccess | CrawlError;
  */
 export type Crawler = {
   extract(url: string, options?: ExtractOptions): Promise<ExtractResult>;
+  /**
+   * Reads HTML that you rendered, as a detail page. It runs no page scripts, sends no
+   * request and does not read robots.txt: you fetched the page, so its robots policy is yours.
+   */
+  extractHtml(input: ExtractHtmlInput): Promise<ExtractResult>;
   links(url: string): Promise<LinksResult>;
   /** Waits for the running calls, then closes the browser. Later calls reject. */
   close(): Promise<void>;

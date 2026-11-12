@@ -17,6 +17,7 @@ import type {
   CrawlError,
   Crawler,
   CrawlerOptions,
+  ExtractHtmlInput,
   ExtractOptions,
   ExtractResult,
   FieldType,
@@ -40,6 +41,7 @@ const defaultLibraryDependencies: LibraryDependencies = {
     createCrawlRunner(options, {
       ...defaultStartCrawlDependencies,
       withRenderedPage: (url, handler) => session.withRenderedPage(url, handler),
+      withSnapshotPage: (url, html, handler) => session.withSnapshotPage(url, html, handler),
     }),
 };
 
@@ -61,6 +63,7 @@ export function createCrawler(
   const pages = createSemaphore(options.maxConcurrentPages ?? DEFAULT_MAX_CONCURRENT_PAGES);
   const session: BrowserSession = {
     withRenderedPage: (url, handler) => pages.run(() => browser.withRenderedPage(url, handler)),
+    withSnapshotPage: (url, html, handler) => pages.run(() => browser.withSnapshotPage(url, html, handler)),
     close: () => browser.close(),
   };
   const running = new Set<Promise<unknown>>();
@@ -94,22 +97,34 @@ export function createCrawler(
     session,
   );
 
+  const extractDetail = (input: CrawlStartInput) => run<ExtractResult>(runner, input, outcome => {
+    if (outcome.kind !== "item") throw new Error(`expected a detail result for ${input.target}`);
+    return {
+      ...pageResult(outcome),
+      data: outcome.result.payload,
+      missing: outcome.missing,
+      stale: outcome.stale,
+    };
+  });
+
   return {
     extract: (url, extractOptions = {}) => track(async () => {
       validateExtractOptions(extractOptions);
-      return run<ExtractResult>(runner, {
+      return extractDetail({
         target: url,
         schema: extractOptions.fields ?? {},
         require: extractOptions.require,
         expect: "detail",
-      }, outcome => {
-        if (outcome.kind !== "item") throw new Error(`expected a detail result for ${url}`);
-        return {
-          ...pageResult(outcome),
-          data: outcome.result.payload,
-          missing: outcome.missing,
-          stale: outcome.stale,
-        };
+      });
+    }),
+    extractHtml: input => track(async () => {
+      validateExtractHtmlInput(input);
+      return extractDetail({
+        target: input.url,
+        schema: input.fields ?? {},
+        require: input.require,
+        expect: "detail",
+        snapshotHtml: input.html,
       });
     }),
     links: url => track(() =>
@@ -214,14 +229,32 @@ function validateOptions(options: CrawlerOptions): void {
   }
 }
 
-function validateExtractOptions(options: ExtractOptions): void {
+const MAX_SNAPSHOT_BYTES = 10 * 1024 * 1024;
+
+function validateExtractHtmlInput(input: ExtractHtmlInput): void {
+  const fail = (message: string): never => {
+    throw new TypeError(`extractHtml: ${message}`);
+  };
+  if (typeof input !== "object" || input === null) fail("the argument must be an object with url and html.");
+  const protocol = typeof input.url === "string" && URL.canParse(input.url) ? new URL(input.url).protocol : null;
+  if (protocol !== "http:" && protocol !== "https:") {
+    fail(`url must be an absolute http or https URL, e.g. "https://shop.example/item/1". Got ${JSON.stringify(input.url)}.`);
+  }
+  if (typeof input.html !== "string" || input.html.trim() === "") fail("html must be the non-empty HTML of the page.");
+  if (Buffer.byteLength(input.html, "utf8") > MAX_SNAPSHOT_BYTES) {
+    fail("html is larger than 10 MB. Remove inline data, such as base64 images, before you pass the page.");
+  }
+  validateExtractOptions(input, "extractHtml");
+}
+
+function validateExtractOptions(options: ExtractOptions, call = "extract"): void {
   for (const [name, type] of Object.entries(options.fields ?? {})) {
     if (!isFieldType(type)) {
-      throw new TypeError(`extract: field "${name}" has the unknown type "${type}". Use one of ${FIELD_TYPES.join(", ")}.`);
+      throw new TypeError(`${call}: field "${name}" has the unknown type "${type}". Use one of ${FIELD_TYPES.join(", ")}.`);
     }
   }
   if (options.require && options.fields) {
     const unknown = options.require.filter(name => !(name in options.fields!));
-    if (unknown.length > 0) throw new TypeError(`extract: require names ${unknown.join(", ")}, which fields does not list.`);
+    if (unknown.length > 0) throw new TypeError(`${call}: require names ${unknown.join(", ")}, which fields does not list.`);
   }
 }
