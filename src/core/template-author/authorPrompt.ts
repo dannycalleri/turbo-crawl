@@ -6,7 +6,8 @@ import type { PatternAnswer } from "./checkUrlPattern";
 import type { SelectorValidation } from "./validateSelectors";
 
 export const AUTHOR_SELECTOR_KINDS = ["jsonld", "meta", "css", "table"] as const;
-export const PAIRS_SELECTOR_KINDS = ["css", "xpath"] as const;
+const PAIRS_SELECTOR_KINDS = ["css", "xpath"] as const;
+const ALL_SELECTOR_KINDS = ["jsonld", "meta", "css", "table", "xpath"] as const;
 export const AUTHOR_ATTRIBUTES = ["textContent", "href", "src", "content", "json"] as const;
 const ANY_ATTRIBUTE = /^attr:[A-Za-z_:][-A-Za-z0-9_:.]*$/;
 export const MAX_SELECTORS_PER_FIELD = 4;
@@ -14,7 +15,7 @@ export const MAX_PROMPT_LINKS = 80;
 const MAX_EXAMPLE_LINKS = 10;
 
 export type AuthoredSelector = {
-    kind: typeof AUTHOR_SELECTOR_KINDS[number] | typeof PAIRS_SELECTOR_KINDS[number];
+    kind: typeof ALL_SELECTOR_KINDS[number];
     selector: string;
     attribute: typeof AUTHOR_ATTRIBUTES[number] | `attr:${string}`;
 };
@@ -130,7 +131,7 @@ const selectorOfKinds = <K extends string>(kinds: readonly [K, ...K[]]) => z.obj
 });
 const authoredSelectorSchema = selectorOfKinds(AUTHOR_SELECTOR_KINDS);
 // Keeps a selector of another kind, so the validation can tell the agent that a pairs field needs css or xpath.
-const pairsSelectorSchema = selectorOfKinds([...AUTHOR_SELECTOR_KINDS, ...PAIRS_SELECTOR_KINDS]);
+const pairsSelectorSchema = selectorOfKinds(ALL_SELECTOR_KINDS);
 
 export function parseAuthorResponse(raw: unknown, schema: UserSchema): AuthorResponse {
     const fieldsShape = Object.fromEntries(
