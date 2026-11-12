@@ -631,6 +631,17 @@ describe("startCrawl with a snapshot", () => {
     expect(outcome.policy.robots).toBe("unknown");
   });
 
+  it("names the snapshot, not the network, when the snapshot cannot be opened", async () => {
+    const renderError = Object.assign(new Error("page.goto: Timeout 30000ms exceeded."), { name: "TimeoutError" });
+    const harness = await createHarness({ renderError });
+
+    const error = await startCrawl(snapshotInput(), harness.options, harness.deps).catch(caught => caught);
+
+    expect(error).toMatchObject({ code: "TIMEOUT" });
+    expect(error.message).toStartWith("The snapshot of https://example.com/final could not be opened");
+    expect(error.message).toContain("turbo-crawl sends no request for a snapshot");
+  });
+
   it("treats the snapshot as a detail page, whatever the caller expects", async () => {
     const listingTemplate: ListingTemplate = {
       id: "listing_fixture",
@@ -702,6 +713,7 @@ async function createHarness(config: {
     },
     async withSnapshotPage(url, html, handler) {
       snapshots.push({ url, html });
+      if (config.renderError) throw config.renderError;
       return handler({ page: {} as Page, pagePacket: { ...createPagePacket(), url, finalUrl: url, ...config.pagePacket } });
     },
     createDomainStore: (input) => createDomainStore({ ...input, rootPath }),

@@ -63,7 +63,7 @@ describe("withSnapshotPage", () => {
   }, 30_000);
 
   it("opens a URL that the browser normalises, and keeps the caller's URL as finalUrl", async () => {
-    for (const url of ["https://shop.example", "https://shop.example/a#specs", "https://SHOP.example/a", "https://shop.example/a b"]) {
+    for (const url of ["https://shop.example", "https://shop.example/a#specs", "https://SHOP.example/a", "https://shop.example/a b", "https://shop.example/a|b/{x}^"]) {
       const seen = await session.withSnapshotPage(url, "<h1>Listing</h1>", async ({ page, pagePacket }) => ({
         title: await page.locator("h1").innerText(),
         finalUrl: pagePacket.finalUrl,
@@ -73,6 +73,22 @@ describe("withSnapshotPage", () => {
     }
   }, 30_000);
 });
+
+it("keeps the snapshot loaded when its HTML has a meta refresh", async () => {
+  const session = createBrowserSession({ userAgent: "SnapshotBot/1.0" });
+  const html = `<html><head><meta http-equiv="refresh" content="0.1"><meta http-equiv="refresh" content="0.1;url=/other"></head><body><h1>Listing</h1></body></html>`;
+
+  try {
+    const seen = await session.withSnapshotPage("https://shop.example/a", html, async ({ page }) => {
+      await new Promise(resolve => setTimeout(resolve, 600));
+      return { url: page.url(), title: await page.locator("h1").innerText() };
+    });
+
+    expect(seen).toEqual({ url: "https://shop.example/a", title: "Listing" });
+  } finally {
+    await session.close();
+  }
+}, 30_000);
 
 describe("extractHtml on a real browser", () => {
   let dataDir = "";
