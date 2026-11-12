@@ -3,6 +3,8 @@ import type { CrawlOptions, CrawlOutcome, CrawlStartInput, ItemOutcome, ListingO
 import { CrawlFailure, type CrawlFailureCode, type PolicyInfo } from "../src/core/policy/policy.ts";
 import { createCrawler, type CrawlerOptions, type LibraryDependencies, type LLMProvider, type LLMRequest } from "../src/lib.ts";
 import type { LLMProvider as InternalProvider } from "../src/core/llm-extractor/providers/LLMProvider.ts";
+import { ClaudeCliProvider } from "../src/core/llm-extractor/providers/ClaudeCliProvider.ts";
+import { authorTemplate } from "../src/core/template-author/authorTemplate.ts";
 import { createCrawlRunner, defaultStartCrawlDependencies } from "../src/core/crawl-run.ts";
 import { createRobotsChecker, type RobotsFetch } from "../src/core/policy/robots.ts";
 import type { PagePacket } from "../src/core/types.ts";
@@ -292,6 +294,34 @@ describe("provider option", () => {
     await new Promise(resolve => setTimeout(resolve, 40));
 
     expect(caller.requests[0]!.signal.aborted).toBe(false);
+  });
+
+  it("treats an answer with no selectors for a field like the same answer from the claude CLI", async () => {
+    const answer = { fields: { title: { expectedSample: null } }, urlPattern: "/news/:slug", sameTypeLinks: [], otherTypeLinks: [] };
+    const f = fakes(async () => article);
+    createCrawler({ ...options, authoring: "allowed", provider: { completeStructured: async () => ({ parsed: answer, raw: answer }) } }, f.deps);
+    const objectProvider = (f.runnerOptions[0]!.provider as () => InternalProvider)();
+    const stdout = JSON.stringify({ type: "result", subtype: "success", is_error: false, structured_output: answer });
+    const cliProvider = new ClaudeCliProvider({
+      run: async () => ({ exitCode: 0, stdout, stderr: "", timedOut: false, spawnError: null }),
+    });
+    const pagePacket = {
+      url: "https://site.com/news/a",
+      finalUrl: "https://site.com/news/a",
+      title: "A",
+      metadata: { canonicalUrl: null, description: null, robots: null, openGraph: {}, twitter: {}, other: {} },
+      jsonLd: [],
+      tables: [],
+      links: [],
+    } as unknown as PagePacket;
+    const author = (provider: InternalProvider) =>
+      authorTemplate({ schema: { title: "string" }, page: {} as Page, pagePacket, skeleton: "body", provider, timeoutMs: 1000 })
+        .then(() => "authored", (error: Error) => error.message);
+
+    const [fromObject, fromCli] = await Promise.all([author(objectProvider), author(cliProvider)]);
+
+    expect(fromObject).toStartWith("The agent's answer did not match the template format: fields.title.selectors");
+    expect(fromObject).toBe(fromCli);
   });
 
   it("throws for a provider without completeStructured, or an empty model", () => {
