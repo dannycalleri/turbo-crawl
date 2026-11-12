@@ -175,6 +175,8 @@ When a config file is not valid, the run stops. The error gives the name of the 
 
 Before turbo-crawl renders a page, it reads the robots.txt of the host with the same user agent. It reads robots.txt again after a redirect to a different URL. turbo-crawl never gets a URL that robots.txt does not allow.
 
+`extractHtml()` does not read robots.txt, because it does not get the page. Refer to [`extractHtml`](#extracthtml-url-html-fields-require-).
+
 Each result has a `policy` object with these values:
 
 - The result of the robots.txt check.
@@ -255,6 +257,28 @@ The library does not read config files. One crawler uses one browser. You can ru
 ### `extract(url, { fields?, require? })`
 
 This call reads the page as a detail page. It gives `{ ok: true, data, missing, stale, canonicalUrl, fetchedAt, urlPattern, policy, templateFit, warnings, ... }`.
+
+### `extractHtml({ url, html, fields?, require? })`
+
+This call reads HTML that you rendered, for example with your own browser or render service. It reads the HTML as a detail page and gives the same result as `extract()`.
+
+- `url` is the absolute `http` or `https` URL of the page. turbo-crawl uses `url` as the base for relative links in the HTML.
+- `html` is the rendered HTML of the page. The maximum size is 10 MB.
+
+turbo-crawl opens the HTML in its browser at `url`. It does not run the scripts of the page. It does not send requests. It stops all requests for images, styles, scripts and frames. It does not read robots.txt, because you got the page. You must obey the robots.txt of the site.
+
+The result is different from `extract()` in these values:
+
+| Value | `extract(url)` | `extractHtml({ url, html })` |
+| --- | --- | --- |
+| `finalUrl` | The URL after redirects | `url` |
+| `policy.robots` | The result of the robots.txt check | `"unknown"` |
+| `policy.httpStatus`, `policy.xRobotsTag` | From the response | `null` |
+| `policy.metaRobots` | From the page | From the HTML |
+
+The call uses one of the `maxConcurrentPages` pages. When more calls run, the other calls wait. The call rejects when `url` is not an absolute `http` or `https` URL, or when `html` is empty or larger than 10 MB.
+
+Use HTML from a page that is fully rendered. turbo-crawl does not run scripts, so content that a script adds after the page loads is not in the HTML.
 
 ### `links(url)`
 

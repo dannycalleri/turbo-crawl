@@ -135,6 +135,16 @@ if (index.ok) {
 await crawler.close();
 ```
 
+**Read HTML that you rendered.** When your own browser or render service already has the page, give the HTML to `extractHtml`. turbo-crawl sends no request and does not read robots.txt:
+
+```ts
+const item = await crawler.extractHtml({
+  url: "https://shop.example/item/42",
+  html,                                                  // HTML from your own renderer
+  require: ["price"],
+});
+```
+
 Install it in a project with `npm install @fragmentoid/turbo-crawl playwright`.
 
 ## How it works
