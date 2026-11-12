@@ -25,7 +25,7 @@ When Chromium for Playwright is missing, turbo-crawl downloads it on the first r
 
 | Option | Description |
 | --- | --- |
-| `--fields name:type,...` | The fields to extract. The types are `string`, `text`, `number`, `boolean`, `date` and `url`. When you do not give this option, the agent suggests the fields. |
+| `--fields name:type,...` | The fields to extract. The types are `string`, `text`, `number`, `boolean`, `date`, `url` and `pairs`. When you do not give this option, the agent suggests the fields. |
 | `--require name,...` | The fields that must have a value for a saved template to fit. The default is all the fields of the template. |
 | `--no-author` | Do not call an agent. When no saved template fits, the CLI exits with code 3. Without an agent, only a saved listing template can identify a listing page. |
 | `--provider <name>` | `auto` (the default), `claude`, `codex` or `lmstudio`. `auto` uses `claude` when it is installed. Otherwise, it uses `codex`. |
@@ -46,6 +46,33 @@ Use the field types as follows:
 - Use `text` for a long passage, for example the body of an article. A `text` field must have 200 characters or more, or the template does not fit.
 - Use `string` for a short value.
 - A `date` field keeps only dates in a machine format: ISO 8601, RFC 2822 or Unix time.
+- Use `pairs` for all the label/value rows of one part of the page, for example a specification table. Refer to [Pairs fields](#pairs-fields).
+
+### Pairs fields
+
+A `pairs` field has one `css` or `xpath` selector for the element that holds the rows. On each page, turbo-crawl reads all the rows in that element. Thus one template also reads rows that the authoring page did not have. When the selector finds more than one element, turbo-crawl reads only the first element and adds a warning.
+
+Example: a template has the fields `price:number,specs:pairs`, and the selector of `specs` is `table.specs`. The template was made on an item with 3 specification rows. On an item with 5 rows, the same template gives all 5 rows:
+
+```json
+{ "price": 4200, "specs": { "Marca": "Omega", "Modello": "Seamaster", "Numero di referenza": "210.30", "Larghezza ansa": "20 mm", "Diametro": "42 mm" } }
+```
+
+turbo-crawl reads these rows:
+
+- A table row (`tr`) with two or more cells that have text. The first cell is the label. The next cell is the value.
+- A `dt` and the first `dd` after it.
+- An element with two child elements that have text. The first child is the label. The second child is the value.
+
+When the value is an inline element, such as `<span>`, that holds two inline elements, for example `<span><b>40</b> <small>mm</small></span>`, turbo-crawl reads it as one value: `40 mm`. When a child holds a pair of other elements, for example two `div` elements, turbo-crawl reads that pair as a row. The element beside it is a title, not a label.
+
+turbo-crawl removes a `:` at the end of a label. When two rows have the same label, turbo-crawl keeps the first value and adds a warning. A row in a row that turbo-crawl read already does not give a second pair.
+
+A `pairs` field must have 3 or more pairs. When it has fewer, the value is `null`, and the field has a warning. If an item can have fewer than 3 rows, do not put the `pairs` field in `--require` (`require` in the library). Then the template fits, and only the `pairs` field is `null`.
+
+The labels are the text of the page, in the language of the page. turbo-crawl does not change them to your field names.
+
+The agent does not suggest a `pairs` field. To get one, put it in `--fields`.
 
 The CLI writes the result to stdout as JSON. It writes the progress messages to stderr. Thus you can send the result to a file:
 

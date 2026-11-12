@@ -40,7 +40,7 @@ export function createCrawlCommand(
         })
         .option("fields", {
           type: "string",
-          describe: "Fields to extract as name:type pairs (types: string, text, number, boolean, date, url). Omit to let the agent suggest fields.",
+          describe: "Fields to extract as name:type pairs (types: string, text, number, boolean, date, url, pairs). Omit to let the agent suggest fields.",
         })
         .option("provider", {
           type: "string",

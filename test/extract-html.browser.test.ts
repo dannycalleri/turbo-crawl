@@ -7,7 +7,7 @@ import { createDomainStore, saveTemplate } from "../src/core/domain-store.ts";
 import { createFieldTemplate } from "../src/core/template-author/validateSelectors.ts";
 import type { SelectorCandidate } from "../src/core/templating/types.ts";
 import { createCrawler } from "../src/lib.ts";
-import { listingA } from "./fixtures/shop-listings.ts";
+import { listingA, listingB } from "./fixtures/shop-listings.ts";
 
 describe("withSnapshotPage", () => {
   let server: ReturnType<typeof Bun.serve>;
@@ -135,6 +135,49 @@ describe("extractHtml on a real browser", () => {
       });
     } finally {
       await crawler.close();
+    }
+  }, 60_000);
+
+  it("reads every spec row of each listing with one pairs field, also rows the template never saw", async () => {
+    const specsDir = await mkdtemp(path.join(tmpdir(), "turbo-crawl-snapshot-pairs-"));
+    const store = createDomainStore({ targetUrl: listingA.url, rootPath: specsDir });
+    const css = (selector: string): SelectorCandidate[] => [{ kind: "css", selector, attribute: "textContent", score: 90, reusable: true }];
+    await saveTemplate(store, {
+      id: "template_fedcba9876543210",
+      domain: store.domain,
+      urlPatterns: ["/:brand/:slug--id:id.htm"],
+      schema: { brand: "string", model: "string", price: "number", specs: "pairs" },
+      createdFromUrl: listingA.url,
+      createdAt: "2026-11-12T00:00:00.000Z",
+      fields: {
+        brand: createFieldTemplate({ fieldName: "brand", type: "string", selectors: css("h1 .brand"), rawValue: null, normalizedValue: null }),
+        model: createFieldTemplate({ fieldName: "model", type: "string", selectors: css("h1 .model"), rawValue: null, normalizedValue: null }),
+        price: createFieldTemplate({ fieldName: "price", type: "number", selectors: css("p.price"), rawValue: null, normalizedValue: null }),
+        specs: createFieldTemplate({ fieldName: "specs", type: "pairs", selectors: css("table.specs"), rawValue: null, normalizedValue: null }),
+      },
+    });
+    const crawler = createCrawler({ dataDir: specsDir, userAgent: "SnapshotBot/1.0", authoring: "never" });
+
+    try {
+      const require = ["brand", "model", "price"];
+      const [onA, onB] = await Promise.all([
+        crawler.extractHtml({ ...listingA, require }),
+        crawler.extractHtml({ ...listingB, require }),
+      ]);
+
+      expect(onA).toMatchObject({ ok: true, stale: false, missing: [] });
+      expect(onB).toMatchObject({ ok: true, stale: false, missing: [], data: { brand: "Omega", price: 4200 } });
+      expect(onA.ok && onA.data.specs).toEqual({ Marca: "Rolex", Modello: "Submariner", Diametro: "40 mm" });
+      expect(onB.ok && onB.data.specs).toEqual({
+        Marca: "Omega",
+        Modello: "Seamaster",
+        "Numero di referenza": "210.30",
+        "Larghezza ansa": "20 mm",
+        Diametro: "42 mm",
+      });
+    } finally {
+      await crawler.close();
+      await rm(specsDir, { recursive: true, force: true });
     }
   }, 60_000);
 
