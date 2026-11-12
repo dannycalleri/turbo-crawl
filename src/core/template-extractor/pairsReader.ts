@@ -1,23 +1,21 @@
 import type { Page } from "playwright";
+import { MIN_PAIRS } from "../llm-extractor/types";
 import type { SelectorCandidate } from "../templating/types";
-
-export const MIN_PAIRS = 3;
 
 export type PairsReadResult = {
     pairs: Record<string, string> | null;
-    count: number;
     warnings: string[];
 };
 
 export async function readPairsSelector(page: Page, selector: SelectorCandidate): Promise<PairsReadResult> {
     if (selector.kind !== "css" && selector.kind !== "xpath") {
-        return { pairs: null, count: 0, warnings: [`A pairs field needs a css or xpath selector, not ${selector.kind}.`] };
+        return { pairs: null, warnings: [`A pairs field needs a css or xpath selector, not ${selector.kind}.`] };
     }
 
     const locator = page.locator(selector.kind === "xpath" ? `xpath=${selector.selector}` : selector.selector);
     const matched = await locator.count();
     if (matched === 0) {
-        return { pairs: null, count: 0, warnings: [`Selector matched no elements: ${selector.selector}`] };
+        return { pairs: null, warnings: [`Selector matched no elements: ${selector.selector}`] };
     }
 
     const rows = await locator.first().evaluate(readRows);
@@ -27,21 +25,28 @@ export async function readPairsSelector(page: Page, selector: SelectorCandidate)
         if (label in pairs) warnings.push(`Label "${label}" appears more than once; kept the first value.`);
         else pairs[label] = value;
     }
-    return { pairs, count: Object.keys(pairs).length, warnings };
+    return { pairs, warnings };
 }
 
 export function pairsValue(read: PairsReadResult): { value: Record<string, string> | null; warnings: string[] } {
     if (read.pairs === null) return { value: null, warnings: read.warnings };
-    if (read.count < MIN_PAIRS) {
-        return { value: null, warnings: [...read.warnings, `Selector read ${read.count} pairs; a pairs field needs ${MIN_PAIRS} or more.`] };
+    const count = Object.keys(read.pairs).length;
+    if (count < MIN_PAIRS) {
+        return { value: null, warnings: [...read.warnings, `Selector read ${count} pairs; a pairs field needs ${MIN_PAIRS} or more.`] };
     }
     return { value: read.pairs, warnings: read.warnings };
 }
 
 // Runs in the page, so it must not reference anything outside its own body.
 function readRows(container: Element): Array<[string, string]> {
-    const clean = (element: Element) =>
-        ((element instanceof HTMLElement ? element.innerText : element.textContent) ?? "").replace(/\s+/g, " ").trim();
+    const textMemo = new Map<Element, string>();
+    const clean = (element: Element): string => {
+        if (!textMemo.has(element)) {
+            const text = (element instanceof HTMLElement ? element.innerText : element.textContent) ?? "";
+            textMemo.set(element, text.replace(/\s+/g, " ").trim());
+        }
+        return textMemo.get(element)!;
+    };
     const asLabel = (text: string) => text.replace(/\s*:$/, "");
     const STRUCTURE = new Set(["TABLE", "THEAD", "TBODY", "TFOOT", "TR", "DL", "DT", "DD"]);
 
@@ -53,12 +58,18 @@ function readRows(container: Element): Array<[string, string]> {
     // no stylesheet, and a live page and its snapshot must give the same pairs.
     const INLINE = new Set(["SPAN", "B", "STRONG", "I", "EM", "SMALL", "A", "SUP", "SUB", "ABBR", "CODE", "LABEL", "FONT", "MARK", "U", "S"]);
     const holdsGroup = (element: Element): boolean => {
-        if (!groupMemo.has(element)) {
-            const pairs = [element, ...Array.from(element.querySelectorAll("*"))].filter(isSiblingPair);
-            groupMemo.set(element, element.matches("tr, dt") || element.querySelector("tr, dt") !== null ||
-                pairs.length >= 2 || pairs.some(pair => !INLINE.has(pair.tagName)));
-        }
+        if (!groupMemo.has(element)) groupMemo.set(element, findGroup(element));
         return groupMemo.get(element)!;
+    };
+    const findGroup = (element: Element): boolean => {
+        if (element.matches("tr, dt") || element.querySelector("tr, dt") !== null) return true;
+        let pairs = 0;
+        for (const candidate of [element, ...Array.from(element.querySelectorAll("*"))]) {
+            if (!isSiblingPair(candidate)) continue;
+            pairs += 1;
+            if (pairs >= 2 || !INLINE.has(candidate.tagName)) return true;
+        }
+        return false;
     };
     const isSiblingPair = (element: Element): boolean => {
         if (!pairMemo.has(element)) {
@@ -71,21 +82,22 @@ function readRows(container: Element): Array<[string, string]> {
 
     const rows: Array<[string, string]> = [];
     const read = new Set<Element>();
-    const insideRead = (element: Element) => {
-        for (let node = element.parentElement; node && node !== container; node = node.parentElement) {
-            if (read.has(node)) return true;
-        }
-        return false;
-    };
+    // querySelectorAll is in document order, so the descendants of a read element follow it directly.
+    let lastRead: Element | null = null;
 
     for (const element of Array.from(container.querySelectorAll("*"))) {
-        if (read.has(element) || insideRead(element)) continue;
+        if (read.has(element)) {
+            lastRead = element;
+            continue;
+        }
+        if (lastRead?.contains(element)) continue;
 
         if (element.tagName === "TR") {
             const cells = textChildren(element).filter(cell => cell.tagName === "TD" || cell.tagName === "TH");
             if (cells.length >= 2) {
                 rows.push([asLabel(clean(cells[0]!)), clean(cells[1]!)]);
                 read.add(element);
+                lastRead = element;
             }
         } else if (element.tagName === "DT") {
             let next = element.nextElementSibling;
@@ -94,11 +106,13 @@ function readRows(container: Element): Array<[string, string]> {
                 rows.push([asLabel(clean(element)), clean(next)]);
                 read.add(element);
                 read.add(next);
+                lastRead = element;
             }
         } else if (isSiblingPair(element)) {
             const [label, value] = Array.from(element.children);
             rows.push([asLabel(clean(label!)), clean(value!)]);
             read.add(element);
+            lastRead = element;
         }
     }
     return rows;
