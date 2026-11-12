@@ -83,9 +83,11 @@ turbo-crawl crawl <url> --fields title:string
 | **New URLs are no problem** | A template is matched by what the page contains, not by its URL. |
 | **You know when a site changes** | When a known page stops fitting its template, the result is marked `stale`. |
 | **Whole listings** | Give it a category or search page. It extracts every item and follows the next pages. |
+| **Spec sheets that vary** | A `pairs` field reads every label/value row of a table or list, also rows the template never saw. |
 | **The agent you already use** | Claude Code or Codex, with your own login. No API keys, and the agent never sees your files. |
 | **Your user agent, your rules** | Set your own with `--user-agent`, a [config file](docs/reference.md#user-agent) or the library option. robots.txt is respected by default. |
 | **No model in production** | Templates are plain JSON. Commit them and extract in CI with no agent. |
+| **Fits your server** | Bring your own HTML, model client and template storage. The library adds no SDK dependency. |
 
 ## Examples
 
@@ -104,6 +106,20 @@ Crawled 2 listing page(s): 25 item(s) extracted, 0 failed.
 
 $ head -1 books.ndjson
 {"ok":true,"kind":"item","url":"https://bookshop.example/catalogue/sharp-objects_997/index.html","data":{"title":"Sharp Objects","price":47.82},...}
+```
+
+**Read every spec row.** A `pairs` field points at the table, not at one row. The template from a page with 3 rows reads all 5 rows of the next page:
+
+```console
+$ npx @fragmentoid/turbo-crawl crawl https://shop.example/omega/seamaster--id51234567.htm --fields price:number,specs:pairs
+{
+  "ok": true,
+  "data": {
+    "price": 4200,
+    "specs": { "Brand": "Omega", "Model": "Seamaster", "Reference": "210.30", "Lug width": "20 mm", "Case": "42 mm" }
+  },
+  ...
+}
 ```
 
 **Never call a model.** With `--no-author`, only saved templates are used. When none fits, the CLI exits 3:
@@ -145,6 +161,18 @@ const item = await crawler.extractHtml({
 });
 ```
 
+**Run it on a server.** Use your own model client for the agent calls, and keep the templates in your own storage, for example a database table:
+
+```ts
+const crawler = createCrawler({
+  userAgent: "MyBot/1.0 (+https://example.com/bot)",
+  authoring: "allowed",
+  provider: { name: "gateway", completeStructured },     // your client: { model, messages, jsonSchema, signal } → { parsed, raw }
+  model: "provider/model-id",
+  store,                                                 // listTemplates, saveTemplate, updateTemplate, ... (no dataDir needed)
+});
+```
+
 Install it in a project with `npm install @fragmentoid/turbo-crawl playwright`.
 
 ## How it works
@@ -163,8 +191,8 @@ The [reference](docs/reference.md#how-it-works) has the details of each step.
 
 ## Documentation
 
-- [Reference](docs/reference.md): every CLI option, exit codes, listing pages, how turbo-crawl selects a template, URL patterns, user agent, robots.txt, environment variables, the library API and the data layout.
-- [Upgrading](docs/upgrading.md): what changed in 0.2 and 0.4.
+- [Reference](docs/reference.md): every CLI option, exit codes, `pairs` fields, listing pages, how turbo-crawl selects a template, URL patterns, user agent, robots.txt, environment variables, the library API (including your own model client and template store) and the data layout.
+- [Upgrading](docs/upgrading.md): what changed in 0.2, 0.4 and 0.5.
 - [Changelog](CHANGELOG.md).
 
 ## Contributing
