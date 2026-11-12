@@ -187,27 +187,29 @@ export async function startCrawl(
   options: CrawlOptions,
   deps: StartCrawlDependencies = defaultStartCrawlDependencies,
 ): Promise<CrawlOutcome> {
-  const snapshotHtml = requested.snapshotHtml;
-  const input: CrawlStartInput = snapshotHtml === undefined
-    ? requested
-    : { ...requested, expect: "detail", listingTemplatePath: undefined };
+  const { snapshotHtml } = requested;
+  const isSnapshot = snapshotHtml !== undefined;
+  const input: CrawlStartInput = isSnapshot
+    ? { ...requested, expect: "detail", listingTemplatePath: undefined }
+    : requested;
   const progress = options.onProgress ?? (() => {});
   let userSchema = input.schema;
   const fieldsGiven = Object.keys(userSchema).length > 0;
   const store = deps.createDomainStore({ targetUrl: input.target, rootPath: options.dataDir });
 
-  const robots = snapshotHtml === undefined ? options.robots ?? null : null;
+  const robots = isSnapshot ? null : options.robots ?? null;
   const robotsStatus: RobotsStatus = robots ? await robots.check(input.target) : "unknown";
   if (robotsStatus === "disallowed") {
     throw new CrawlFailure("ROBOTS_DISALLOWED", `robots.txt disallows ${input.target} for this user agent. Choose another URL, or turn off the robots check only with the site's permission.`, null);
   }
 
-  progress(snapshotHtml === undefined ? `Rendering ${input.target}…` : `Reading the snapshot of ${input.target}…`);
+  progress(isSnapshot ? `Reading the snapshot of ${input.target}…` : `Rendering ${input.target}…`);
 
+  const sessionOptions = { userAgent: options.userAgent };
   const openPage = <T>(handler: (context: RenderedPageContext) => Promise<T>): Promise<T> =>
-    snapshotHtml === undefined
-      ? deps.withRenderedPage(input.target, handler, { userAgent: options.userAgent })
-      : deps.withSnapshotPage(input.target, snapshotHtml, handler, { userAgent: options.userAgent });
+    isSnapshot
+      ? deps.withSnapshotPage(input.target, snapshotHtml, handler, sessionOptions)
+      : deps.withRenderedPage(input.target, handler, sessionOptions);
 
   return renderOrTimeout(input.target, () => openPage(async ({ page, pagePacket }) => {
     const finalUrl = pagePacket.finalUrl || pagePacket.url;
