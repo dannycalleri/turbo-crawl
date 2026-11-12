@@ -7,21 +7,21 @@ describe("inferUrlPattern", () => {
       inferUrlPattern(
         "https://www.watchshop.example/it/orologi/automatici/tissot-visodate-39mm-t1574071104100.php",
       ),
-    ).toBe("/it/orologi/automatici/:slug");
+    ).toBe("/it/orologi/automatici/:slug.php");
   });
 
-  it("normalizes hyphenated slugs before common file extensions", () => {
+  it("normalizes hyphenated slugs before common file extensions, and keeps the extension", () => {
     expect(inferUrlPattern("https://example.com/products/seiko-sport-5-gmt-batman-ssk003k1.php")).toBe(
-      "/products/:slug",
+      "/products/:slug.php",
     );
     expect(inferUrlPattern("https://example.com/products/black-bay-58.html")).toBe(
-      "/products/:slug",
+      "/products/:slug.html",
     );
   });
 
   it("still recognizes numeric and hash-like file basenames", () => {
-    expect(inferUrlPattern("https://example.com/products/12345.php")).toBe("/products/:id");
-    expect(inferUrlPattern("https://example.com/assets/a1b2c3d4e5.html")).toBe("/assets/:hash");
+    expect(inferUrlPattern("https://example.com/products/12345.php")).toBe("/products/:id.php");
+    expect(inferUrlPattern("https://example.com/assets/a1b2c3d4e5.html")).toBe("/assets/:hash.html");
   });
 
   it("treats underscore-joined segments with an id as slugs", () => {
@@ -32,10 +32,13 @@ describe("inferUrlPattern", () => {
     expect(inferUrlPattern("https://example.com/my_account")).toBe("/my_account");
   });
 
-  it("treats a slug with an empty token, as in a double hyphen, as a slug", () => {
-    expect(inferUrlPattern("https://www.watches.example/rolex/rolex-submariner-no-date--id49535507.htm")).toBe(
-      "/rolex/:slug",
+  it("keeps a double-hyphen id affix, so detail pages and model pages get different patterns", () => {
+    expect(inferUrlPattern("https://shop.example/rolex/rolex-submariner-no-date--id49535507.htm")).toBe(
+      "/rolex/:slug--id:id.htm",
     );
+    expect(inferUrlPattern("https://shop.example/rolex/x--id1.htm")).toBe("/rolex/:slug--id:id.htm");
+    expect(inferUrlPattern("https://shop.example/rolex/submariner--mod37.htm")).toBe("/rolex/:slug--mod:id.htm");
+    expect(inferUrlPattern("https://shop.example/rolex/rolex-submariner--id49535507")).toBe("/rolex/:slug--id:id");
   });
 
   it("keeps dotted version and asset segments literal", () => {
@@ -53,7 +56,8 @@ describe("inferUrlPattern", () => {
 
   it("gives the same pattern when it runs on its own output", () => {
     const urls = [
-      "https://www.watches.example/rolex/rolex-submariner-no-date--id49535507.htm",
+      "https://shop.example/rolex/rolex-submariner-no-date--id49535507.htm",
+      "https://example.com/products/black-bay-58.html",
       "https://bookshop.example/catalogue/a-light-in-the-attic_1000/index.html",
       "https://example.com/products/12345.php",
       "https://example.com/assets/a1b2c3d4e5.html",

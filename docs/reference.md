@@ -173,8 +173,8 @@ When a condition is false, the agent gets a repair round. When the pattern fails
 
 A template gets a new pattern only when it fits a page that none of its patterns match. turbo-crawl then:
 
-1. Adds a pattern for that page.
-2. Merges two patterns when they are different in one path segment. For example, `/rolex/:slug` and `/omega/:slug` become `/:slug/:slug`.
+1. Adds a pattern for that page. The pattern keeps the file extension and an id part after `--`. For example, `/rolex/x--id1.htm` gives `/rolex/:slug--id:id.htm`, and `/rolex/x--mod37.htm` gives `/rolex/:slug--mod:id.htm`. Thus a detail page and a model page get different patterns.
+2. Merges two patterns when they are different in one path segment. For example, `/rolex/:slug--id:id.htm` and `/omega/:slug--id:id.htm` become `/:slug/:slug--id:id.htm`.
 3. Keeps a maximum of 20 patterns.
 
 ### Stale results

@@ -2,13 +2,15 @@
 
 ## From 0.4 to 0.5
 
-Version 0.5 adds library options and the field type `pairs`. All the new options are optional. When you do not use them, turbo-crawl operates as in version 0.4. The CLI also accepts `pairs` in `--fields`. The file layout of the templates does not change, but version 0.4 cannot read a template that has a `pairs` field.
+Version 0.5 adds library options and the field type `pairs`. All the new options are optional. When you do not use them, turbo-crawl operates as in version 0.4, with the two corrections at the end of this list. The CLI also accepts `pairs` in `--fields`. The file layout of the templates does not change, but version 0.4 cannot read a template that has a `pairs` field.
 
 - **`crawler.extractHtml({ url, html })`.** It reads HTML that you rendered, and it does not get the page. Refer to [`extractHtml`](reference.md#extracthtml-url-html-fields-require-).
 - **The field type `pairs`.** It reads all the label/value rows of one part of the page, for example a specification table. Refer to [Pairs fields](reference.md#pairs-fields).
 - **The `provider` and `model` options.** Your own model client does the agent calls. Refer to [Your own model client](reference.md#your-own-model-client).
 - **The `store` option.** Your own storage keeps the templates. `dataDir` is then optional. Refer to [Your own template store](reference.md#your-own-template-store).
 - **Type changes.** `CrawlerOptions.dataDir` is optional in the TypeScript types, because `store` can replace it. `FieldType` has the new value `"pairs"`. If your code examines all the values of `FieldType`, add `"pairs"`.
+- **Number values read thousands separators.** `10.000 €` gives `10000`, `$12,500` gives `12500` and `1.250.000` gives `1250000`. Version 0.4 gave `10`, `12.5` and `null`. One separator before exactly 3 digits is a thousands separator, but `0.500` is `0.5`.
+- **New URL patterns keep the id part and the extension.** `/rolex/x--id1.htm` gives `/rolex/:slug--id:id.htm`, not `/rolex/:slug`. The patterns that a template has now do not change. If a template has a wide pattern such as `/:slug/:slug`, remove that pattern from the template. turbo-crawl adds a narrower pattern at the next fit. Refer to [How patterns change](reference.md#how-patterns-change).
 
 ## From 0.3 to 0.4
 
