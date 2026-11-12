@@ -40,27 +40,36 @@ export function fileTemplateRepository(store: DomainStore, files: FileTemplateFu
 }
 
 export function storeTemplateRepository(store: TemplateStore, domain: string): TemplateRepository {
-  const addPattern = (url: string) => (template: TemplateJson) => (withUrlPattern(template, url) as TemplateJson | null) ?? template;
+  const addPattern = (call: string, ref: string, url: string) => (template: TemplateJson): TemplateJson => {
+    if (typeof template !== "object" || template === null || Array.isArray(template)) {
+      throw new Error(`store.${call} called update without a template for ref ${JSON.stringify(ref)}. Give update the stored template JSON, or reject when the ref no longer exists.`);
+    }
+    return (withUrlPattern(template, url) as TemplateJson | null) ?? template;
+  };
   return {
-    listTemplates: async () => validated(await store.listTemplates(domain), "template", (value, ref, warnings) =>
+    listTemplates: async () => validated(await store.listTemplates(domain), "listTemplates", "template", (value, ref, warnings) =>
       validateFieldTemplate(value, domain, ref, warnings)),
-    listListingTemplates: async () => validated(await store.listListingTemplates(domain), "listing template", (value, ref, warnings) =>
+    listListingTemplates: async () => validated(await store.listListingTemplates(domain), "listListingTemplates", "listing template", (value, ref, warnings) =>
       validateListingTemplate(value, domain, ref, warnings)),
     saveTemplate: async template => checkedRef(await store.saveTemplate(template as unknown as TemplateJson), "saveTemplate"),
     saveListingTemplate: async template => checkedRef(await store.saveListingTemplate(template as unknown as TemplateJson), "saveListingTemplate"),
-    addPattern: (ref, url) => store.updateTemplate(ref, addPattern(url)),
-    addListingPattern: (ref, url) => store.updateListingTemplate(ref, addPattern(url)),
+    addPattern: (ref, url) => store.updateTemplate(ref, addPattern("updateTemplate", ref, url)),
+    addListingPattern: (ref, url) => store.updateListingTemplate(ref, addPattern("updateListingTemplate", ref, url)),
   };
 }
 
 function validated<T>(
   entries: unknown,
+  call: string,
   label: string,
   validate: (value: unknown, ref: string, warnings: ReuseWarning[]) => T | null,
 ): ReuseDiscoveryResult<{ path: string; template: T }> {
   const warnings: ReuseWarning[] = [];
   const candidates: Array<{ path: string; template: T }> = [];
-  for (const entry of Array.isArray(entries) ? entries : []) {
+  if (!Array.isArray(entries)) {
+    throw new Error(`store.${call} must resolve to an array of { ref, template }, not ${entries === null ? "null" : typeof entries}.`);
+  }
+  for (const entry of entries) {
     const ref = typeof entry?.ref === "string" ? entry.ref : null;
     if (ref === null) {
       warnings.push({ operation: "template-validation", path: "", message: `The store gave a ${label} without a string ref; it was ignored.`, recoverable: true });
