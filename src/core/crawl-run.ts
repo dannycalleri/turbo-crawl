@@ -211,7 +211,7 @@ export async function startCrawl(
       ? deps.withSnapshotPage(input.target, snapshotHtml, handler, sessionOptions)
       : deps.withRenderedPage(input.target, handler, sessionOptions);
 
-  return renderOrTimeout(input.target, () => openPage(async ({ page, pagePacket }) => {
+  return renderOrTimeout(input.target, isSnapshot, () => openPage(async ({ page, pagePacket }) => {
     const finalUrl = pagePacket.finalUrl || pagePacket.url;
     let policy = buildPolicy(pagePacket, robotsStatus);
     if (robots && finalUrl !== input.target && (await robots.check(finalUrl)) === "disallowed") {
@@ -484,10 +484,17 @@ async function findListingFit(
     right.candidate.template.createdAt.localeCompare(left.candidate.template.createdAt))[0] ?? null;
 }
 
-async function renderOrTimeout<T>(url: string, render: () => Promise<T>): Promise<T> {
+async function renderOrTimeout<T>(url: string, isSnapshot: boolean, render: () => Promise<T>): Promise<T> {
   try {
     return await render();
   } catch (error) {
+    if (isSnapshot && error instanceof Error && /page\.goto/.test(error.message)) {
+      throw new CrawlFailure(
+        error.name === "TimeoutError" ? "TIMEOUT" : "HTTP_ERROR",
+        `The snapshot of ${url} could not be opened (${error.message.split("\n")[0]}). turbo-crawl sends no request for a snapshot, so check the HTML and the URL; a very large page can need a larger navigationTimeoutMs.`,
+        null,
+      );
+    }
     if (error instanceof Error && error.name === "TimeoutError" && /page\.goto/.test(error.message)) {
       throw new CrawlFailure("TIMEOUT", `${url} did not load in time (${error.message.split("\n")[0]}). The site may be slow or unreachable; try again later.`, null);
     }

@@ -202,13 +202,17 @@ async function openSnapshot(
   deps: CrawlerDependencies,
 ): Promise<PagePacket> {
   await deps.installPageContextHelpers(page);
-  // The browser requests the normalised URL: lower-case host, "/" path, no fragment.
-  const requested = new URL(url);
-  requested.hash = "";
-  await page.route("**/*", route =>
-    route.request().url() === requested.href && route.request().isNavigationRequest()
-      ? route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: html })
-      : route.abort());
+  // Serve the first main-frame navigation, whatever URL encoding the browser used, and only once:
+  // a meta refresh still runs with scripts off. "aborted" keeps the snapshot; "failed" would show an error page.
+  let served = false;
+  await page.route("**/*", route => {
+    const request = route.request();
+    if (!served && request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+      served = true;
+      return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: html });
+    }
+    return route.abort("aborted");
+  });
 
   await page.goto(url, {
     waitUntil: "domcontentloaded",
