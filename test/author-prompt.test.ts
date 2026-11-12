@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { UserSchema } from "../src/core/llm-extractor/types.ts";
 import {
+  buildAuthorMessages,
   buildAuthorResponseSchema,
   buildRepairMessages,
   parseAuthorResponse,
@@ -208,5 +209,65 @@ describe("buildRepairMessages", () => {
     expect(prompt).toContain("None of your working selectors is a css selector");
     expect(prompt).toContain("Write a css selector for each field whose value is visible on the page: title: string, price: number");
     expect(prompt).not.toContain("Leave fields empty");
+  });
+});
+
+describe("pairs fields in the author prompt", () => {
+  const page: PageContextForAgent = { url: "https://shop.example/rolex/a--id1.htm", skeleton: "body", pagePacket: emptyPacket() };
+  const pairsSchema: UserSchema = { price: "number", specs: "pairs" };
+  const userPrompt = (messages: { role: string; content: string }[]) => messages.find(message => message.role === "user")!.content;
+
+  it("gives the pairs rules only when the schema has a pairs field", () => {
+    const withPairs = userPrompt(buildAuthorMessages({ schema: pairsSchema, page, links: [] }));
+    const without = userPrompt(buildAuthorMessages({ schema, page, links: [] }));
+
+    expect(withPairs).toContain("Pairs fields (type pairs):");
+    expect(withPairs).toContain("the element that holds all the rows");
+    expect(withPairs).toContain("Do not point at one row.");
+    expect(withPairs).toContain("expectedSample is the label of one row");
+    expect(without).not.toContain("Pairs fields");
+  });
+
+  it("gives the pairs rules in a repair round only when a pairs field is asked again", () => {
+    const repair = (failed: string) => userPrompt(buildRepairMessages({
+      schema: pairsSchema,
+      page,
+      previous: { fields: {}, pattern: null },
+      links: [],
+      patternFailure: null,
+      bodyMissing: false,
+      failures: { [failed]: [] },
+    }));
+
+    expect(repair("specs")).toContain("Pairs fields (type pairs):");
+    expect(repair("price")).not.toContain("Pairs fields");
+  });
+
+  it("accepts only css and xpath kinds for a pairs field in the response schema", () => {
+    const answerSchema = buildAuthorResponseSchema(pairsSchema, false) as {
+      properties: { fields: { properties: Record<string, { properties: { selectors: { items: { properties: { kind: { enum: string[] } } } } } }> } };
+    };
+    const kinds = (name: string) => answerSchema.properties.fields.properties[name]!.properties.selectors.items.properties.kind.enum;
+
+    expect(kinds("specs")).toEqual(["css", "xpath"]);
+    expect(kinds("price")).toEqual(["jsonld", "meta", "css", "table"]);
+  });
+
+  it("keeps an xpath selector for a pairs field, and a selector of another kind for the validation to refuse", () => {
+    const answer = parseAuthorResponse({
+      fields: {
+        price: { selectors: [{ kind: "xpath", selector: "//p", attribute: "textContent" }], expectedSample: "9500" },
+        specs: {
+          selectors: [
+            { kind: "xpath", selector: "//table[@class='specs']", attribute: "textContent" },
+            { kind: "jsonld", selector: "jsonld_01:$.specs", attribute: "json" },
+          ],
+          expectedSample: "Marca",
+        },
+      },
+    }, pairsSchema);
+
+    expect(answer.fields.price!.selectors).toEqual([]);
+    expect(answer.fields.specs!.selectors.map(selector => selector.kind)).toEqual(["xpath", "jsonld"]);
   });
 });
