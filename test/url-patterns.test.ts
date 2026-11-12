@@ -100,7 +100,7 @@ describe("normalizePatterns", () => {
       "/rolex/rolex-submariner-no-date--id49535507",
       "/rolex/rolex-daytona--id51234567",
       "/omega/omega-speedmaster--id50011122",
-    ])).toEqual(["/:slug/:slug"]);
+    ])).toEqual(["/:slug/:slug--id:id"]);
   });
 
   it("does not generalize a literal segment of a pattern that has placeholders", () => {

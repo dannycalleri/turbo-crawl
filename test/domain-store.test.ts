@@ -307,7 +307,7 @@ describe("domain store foundational helpers", () => {
       await addPatternToTemplate(templatePath, `https://www.watches.example/${brand}/${brand}-model-${index}--id${50_000_000 + index}.htm`);
     }
 
-    expect((await readJsonFile<ExtractionTemplate>(templatePath)).urlPatterns).toEqual(["/:slug/:slug"]);
+    expect((await readJsonFile<ExtractionTemplate>(templatePath)).urlPatterns).toEqual(["/rolex/:slug", "/:slug/:slug--id:id.htm"]);
   });
 
   it("loads a 0.3.0 template with per-listing paths as one merged pattern, and saves that list on the next write", async () => {
@@ -322,10 +322,10 @@ describe("domain store foundational helpers", () => {
     await writeJsonFile(templatePath, { ...createTemplate(), domain: "watches.example", urlPatterns: paths });
 
     const [loaded] = (await listTemplatesForDomain(store)).candidates;
-    expect(loaded?.template.urlPatterns).toEqual(["/:slug/:slug"]);
+    expect(loaded?.template.urlPatterns).toEqual(["/:slug/:slug--id:id"]);
 
     await addPatternToTemplate(templatePath, "https://www.watches.example/search/watches/index.htm");
-    expect((await readJsonFile<ExtractionTemplate>(templatePath)).urlPatterns).toEqual(["/:slug/:slug", "/search/watches/index.htm"]);
+    expect((await readJsonFile<ExtractionTemplate>(templatePath)).urlPatterns).toEqual(["/:slug/:slug--id:id", "/search/watches/index.htm"]);
   });
 
   it("loads a 0.3.0 listing file with only itemUrlPattern, and writes both fields on save", async () => {

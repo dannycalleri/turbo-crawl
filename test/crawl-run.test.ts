@@ -739,7 +739,28 @@ describe("startCrawl with a caller's template store", () => {
     expect(outcomes.map(outcome => outcome.templateFit.matchedPattern)).toEqual([false, false]);
     expect(memory.calls.filter(call => call === "updateTemplate")).toHaveLength(2);
     expect(urls.map(url => urlMatchesPattern(url, saved))).toEqual([true, true]);
-    expect(saved[0]).toBe("/tudor/:slug--id:id.htm");
+    expect(saved).toEqual(["/:slug/:slug--id:id.htm"]);
+  });
+
+  it("adds patterns that keep the detail id affix, so they match no model, search or info page", async () => {
+    const template = createTemplate({ domain: "shop.example", urlPatterns: ["/rolex/:slug--id:id.htm"] });
+    const memory = memoryStore({ templates: { "row-1": template } });
+    const harness = await createHarness();
+    const crawl = (target: string) => startCrawl(
+      { target, schema: { title: "string" }, snapshotHtml: "<h1>Fixture</h1>" },
+      { ...harness.options, store: memory.store, writeArtifacts: false },
+      harness.deps,
+    );
+
+    const omega = await crawl("https://shop.example/omega/x--id2.htm");
+    const tudor = await crawl("https://shop.example/tudor/y--id3.htm");
+    expect([omega.templateFit.matchedPattern, tudor.templateFit.matchedPattern]).toEqual([false, true]);
+    const saved = (memory.tables.templates.get("row-1") as ExtractionTemplate).urlPatterns;
+
+    expect(saved).toEqual(["/:slug/:slug--id:id.htm"]);
+    for (const path of ["/rolex/submariner--mod37.htm", "/search/index.htm", "/info/contact.htm"]) {
+      expect(urlMatchesPattern(`https://shop.example${path}`, saved)).toBe(false);
+    }
   });
 
   it("rejects a store whose list is not an array, instead of reading no templates", async () => {

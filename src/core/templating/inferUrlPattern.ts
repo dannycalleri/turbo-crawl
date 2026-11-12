@@ -12,15 +12,23 @@ export function inferUrlPattern(rawUrl: string): string {
 function inferPathPartPattern(part: string): string {
     if (part.startsWith(":")) return part;
 
-    const basename = stripKnownFileExtension(decodeSegment(part));
+    const [, basename = "", extension = ""] = /^(.*?)(\.(?:html?|php|aspx?))?$/i.exec(decodeSegment(part))!;
+    const shape = inferBasenamePattern(basename);
 
+    return shape === null ? part.replace(/:/g, "%3A") : shape + extension;
+}
+
+function inferBasenamePattern(basename: string): string | null {
     if (/^\d+$/.test(basename)) return ":id";
 
     if (/^[0-9a-f]{8,}$/i.test(basename)) return ":hash";
 
+    const affix = /^([\p{L}\p{N}]+(?:[-_]+[\p{L}\p{N}]+)*)--(\p{L}+)\d+$/u.exec(basename);
+    if (affix) return `:slug--${affix[2]}:id`;
+
     if (looksLikeSlug(basename)) return ":slug";
 
-    return part.replace(/:/g, "%3A");
+    return null;
 }
 
 export function decodeSegment(part: string): string {
@@ -29,10 +37,6 @@ export function decodeSegment(part: string): string {
     } catch {
         return part;
     }
-}
-
-function stripKnownFileExtension(part: string): string {
-    return part.replace(/\.(?:html?|php|aspx?)$/i, "");
 }
 
 function looksLikeSlug(part: string): boolean {
