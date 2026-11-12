@@ -135,32 +135,34 @@ export async function fetchRenderedPage(
   return withRenderedPage(url, ({ pagePacket }) => pagePacket, {}, deps);
 }
 
-export async function withRenderedPage<T>(
+export function withRenderedPage<T>(
   url: string,
   handler: (context: RenderedPageContext) => Promise<T> | T,
   options: BrowserSessionOptions = {},
   deps: CrawlerDependencies = defaultCrawlerDependencies,
 ): Promise<T> {
-  const session = createBrowserSession(options, deps);
-
-  try {
-    return await session.withRenderedPage(url, handler);
-  } finally {
-    await session.close();
-  }
+  return withOneTimeSession(options, deps, session => session.withRenderedPage(url, handler));
 }
 
-export async function withSnapshotPage<T>(
+export function withSnapshotPage<T>(
   url: string,
   html: string,
   handler: (context: RenderedPageContext) => Promise<T> | T,
   options: BrowserSessionOptions = {},
   deps: CrawlerDependencies = defaultCrawlerDependencies,
 ): Promise<T> {
+  return withOneTimeSession(options, deps, session => session.withSnapshotPage(url, html, handler));
+}
+
+async function withOneTimeSession<T>(
+  options: BrowserSessionOptions,
+  deps: CrawlerDependencies,
+  use: (session: BrowserSession) => Promise<T>,
+): Promise<T> {
   const session = createBrowserSession(options, deps);
 
   try {
-    return await session.withSnapshotPage(url, html, handler);
+    return await use(session);
   } finally {
     await session.close();
   }
