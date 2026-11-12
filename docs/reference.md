@@ -279,7 +279,7 @@ The optional options are:
 - `settleTimeoutMs`. The default is `10000`.
 - `maxConcurrentPages`. The default is `4`.
 - `provider`. Your own model client. Refer to [Your own model client](#your-own-model-client).
-- `model`. The model id that turbo-crawl sends to `provider`. turbo-crawl uses this option only with `provider`.
+- `model`. The model id that turbo-crawl sends to `provider`. It is valid only with `provider`. For `claude`, `codex` and LM Studio, use `TURBO_CRAWL_MODEL`.
 
 The library does not read config files. One crawler uses one browser. You can run calls at the same time. When more than `maxConcurrentPages` calls run, the other calls wait.
 
