@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
 import { MIN_PAIRS } from "../llm-extractor/types";
 import type { SelectorCandidate } from "../templating/types";
+import { locateFirst } from "./selectorValueReader";
 
 export type PairsReadResult = {
     pairs: Record<string, string> | null;
@@ -12,15 +13,11 @@ export async function readPairsSelector(page: Page, selector: SelectorCandidate)
         return { pairs: null, warnings: [`A pairs field needs a css or xpath selector, not ${selector.kind}.`] };
     }
 
-    const locator = page.locator(selector.kind === "xpath" ? `xpath=${selector.selector}` : selector.selector);
-    const matched = await locator.count();
-    if (matched === 0) {
-        return { pairs: null, warnings: [`Selector matched no elements: ${selector.selector}`] };
-    }
+    const { first, warnings } = await locateFirst(page, selector);
+    if (first === null) return { pairs: null, warnings };
 
-    const rows = await locator.first().evaluate(readRows);
+    const rows = await first.evaluate(readRows);
     const pairs: Record<string, string> = {};
-    const warnings: string[] = matched > 1 ? [`Selector matched ${matched} elements; using the first match.`] : [];
     for (const [label, value] of rows) {
         if (label in pairs) warnings.push(`Label "${label}" appears more than once; kept the first value.`);
         else pairs[label] = value;

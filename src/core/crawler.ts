@@ -85,14 +85,14 @@ export function createBrowserSession(
     }
     return browser;
   };
-  const pageOptions = () => ({
+  const pageOptions = {
     viewport: PAGE_VIEWPORT,
     userAgent: options.userAgent ?? DEFAULT_USER_AGENT,
-  });
+  };
 
   return {
     async withRenderedPage(url, handler) {
-      const page = await (await launched()).newPage(pageOptions());
+      const page = await (await launched()).newPage(pageOptions);
 
       try {
         const pagePacket = await renderPage(page, url, options, deps);
@@ -104,7 +104,7 @@ export function createBrowserSession(
     async withSnapshotPage(url, html, handler) {
       // serviceWorkers: a worker's requests would bypass page.route.
       const context: BrowserContext = await (await launched()).newContext({
-        ...pageOptions(),
+        ...pageOptions,
         javaScriptEnabled: false,
         serviceWorkers: "block",
       });
