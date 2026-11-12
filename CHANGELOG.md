@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.5.0](https://github.com/dannycalleri/turbo-crawl/compare/v0.4.0...v0.5.0) (2026-11-12)
+
+
+### Features
+
+* abort a caller's provider request at TURBO_CRAWL_LLM_TIMEOUT_MS ([9354470](https://github.com/dannycalleri/turbo-crawl/commit/9354470b5ade4ef12bc22b398effbe256fe22d68))
+* add the pairs field type, which reads every label/value row of one container ([d1732bb](https://github.com/dannycalleri/turbo-crawl/commit/d1732bbc53c7569b0b2968f2c09736d5deb0e24b))
+* let a library caller keep templates in its own store, with the store option ([fa9a9af](https://github.com/dannycalleri/turbo-crawl/commit/fa9a9af92bd7ee32c5147132af9ac11240e211b8))
+* let a library caller pass its own model client as the provider option ([08db57c](https://github.com/dannycalleri/turbo-crawl/commit/08db57c4ccb6b87306d23381282e2c4c30993028))
+* read a page from HTML that the caller rendered, with crawler.extractHtml ([912aa0e](https://github.com/dannycalleri/turbo-crawl/commit/912aa0e37e825c6e680288a2365f181a35486d95))
+* tell the agent to point a pairs field at the element that holds all the rows ([605c62b](https://github.com/dannycalleri/turbo-crawl/commit/605c62bb2b23342349ec3d612c3b22e5e6646672))
+* validate a pairs selector by its pair count and an expected row label ([074e3d5](https://github.com/dannycalleri/turbo-crawl/commit/074e3d554de59a145a15c2f1f2bf46ee1603138e))
+
+
+### Bug Fixes
+
+* keep object-member labels in pairs, skip header cells, and check the leading number group ([f5a71c0](https://github.com/dannycalleri/turbo-crawl/commit/f5a71c0e3bd3636401f8231489cd64a75a9a02d0))
+* keep the id affix and the extension in inferred URL patterns ([89337ac](https://github.com/dannycalleri/turbo-crawl/commit/89337acc855d3cc6d560dfb03ef31ff7eb9b218f))
+* open any snapshot URL once, and name the snapshot in its errors ([fa2fc65](https://github.com/dannycalleri/turbo-crawl/commit/fa2fc65ba98767dc8dc0ca479c8e717f5ccc8698))
+* read a value with inline parts, such as 40 and mm, as one pairs value ([4e77511](https://github.com/dannycalleri/turbo-crawl/commit/4e77511a660efe6e6cd5f7f9b3048e5d4580c97e))
+* read thousands separators in number values ([a3e2f42](https://github.com/dannycalleri/turbo-crawl/commit/a3e2f4264a8acf18cbd7ae331e4c70608c48af6c))
+* reject a store that breaks its contract, instead of reading no templates ([a54bfcb](https://github.com/dannycalleri/turbo-crawl/commit/a54bfcb1ebce31b0ad37fe7ff343df57e3615b54))
+* reject the model option without a provider, instead of ignoring it ([291ecb1](https://github.com/dannycalleri/turbo-crawl/commit/291ecb1238f284e6a5689b0fb56d43e95b1cfddd))
+
 ## [0.4.0](https://github.com/dannycalleri/turbo-crawl/compare/v0.3.0...v0.4.0) (2026-11-11)
 
 
