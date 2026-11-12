@@ -15,3 +15,21 @@ export const listingA = {
     </main>
   </body></html>`,
 };
+
+export const listingB = {
+  url: "https://shop.example/omega/seamaster-diver--id51234567.htm",
+  html: `<!doctype html><html lang="it"><head><title>Omega Seamaster</title></head>
+  <body>
+    <main>
+      <h1><span class="brand">Omega</span> <span class="model">Seamaster</span></h1>
+      <p class="price">4200</p>
+      <table class="specs">
+        <tr><td>Marca</td><td>Omega</td></tr>
+        <tr><td>Modello</td><td>Seamaster</td></tr>
+        <tr><td>Numero di referenza</td><td>210.30</td></tr>
+        <tr><td>Larghezza ansa</td><td>20 mm</td></tr>
+        <tr><td>Diametro</td><td>42 mm</td></tr>
+      </table>
+    </main>
+  </body></html>`,
+};
