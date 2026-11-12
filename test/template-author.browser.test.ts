@@ -367,3 +367,104 @@ describe("authorTemplate on a live page", () => {
     expect(result.payload).toEqual({ title: null, price: 49 });
   });
 });
+
+describe("authorTemplate for a pairs field", () => {
+  let browser: Browser | null = null;
+  let page: Page | null = null;
+  let pagePacket: PagePacket | null = null;
+  const pairsSchema: UserSchema = { specs: "pairs" };
+  const specsHtml = `<!doctype html><html><body><main>
+    <a href="https://shop.example/products/clock-2">Clock 2</a><a href="https://shop.example/category/clocks">All clocks</a>
+    <table class="specs">
+      <tr class="brand"><td>Marca</td><td>Rolex</td></tr>
+      <tr><td>Modello:</td><td>Submariner</td></tr>
+      <tr><td>Diametro</td><td>40 mm</td></tr>
+    </table>
+  </main></body></html>`;
+
+  beforeAll(async () => {
+    browser = await chromium.launch({ headless: true });
+  });
+
+  beforeEach(async () => {
+    page = await browser!.newPage();
+    await installPageContextHelpers(page);
+    await page.setContent(specsHtml);
+    pagePacket = await buildPagePacket(page);
+  });
+
+  afterEach(async () => {
+    await page?.close();
+  });
+
+  afterAll(async () => {
+    await browser?.close();
+  });
+
+  const author = (provider: LLMProvider) =>
+    authorTemplate({ schema: pairsSchema, page: page!, pagePacket: pagePacket!, skeleton: "body", provider, maxRepairs: 1 });
+  const specs = (selector: { kind: string; selector: string; attribute: string }, expectedSample: string | null) =>
+    ({ fields: { specs: { selectors: [selector], expectedSample } }, ...productPattern });
+
+  it("keeps a container selector that reads 3 pairs, one with the expected label", async () => {
+    const { provider, requests } = scriptedProvider([specs(css("table.specs"), "modello")]);
+
+    const authored = await author(provider);
+
+    expect(requests).toHaveLength(1);
+    expect(authored.warnings).toEqual([]);
+    expect(authored.template.fields.specs!.selectors.map(selector => selector.selector)).toEqual(["table.specs"]);
+    expect(authored.template.fields.specs!.normalizedValue).toEqual({ Marca: "Rolex", Modello: "Submariner", Diametro: "40 mm" });
+  });
+
+  it("sends a row selector that reads 0 pairs to the repair round with the number it read", async () => {
+    const { provider, requests } = scriptedProvider([
+      specs(css("table.specs tr.brand"), "Marca"),
+      { fields: { specs: { selectors: [css("table.specs")], expectedSample: "Marca" } } },
+    ]);
+
+    const authored = await author(provider);
+
+    const repairPrompt = requests[1]!.messages.find(message => message.role === "user")!.content;
+    expect(repairPrompt).toContain("read 0 pairs; a pairs field needs 3 or more");
+    expect(repairPrompt).toContain("Pairs fields (type pairs):");
+    expect(authored.template.fields.specs!.selectors.map(selector => selector.selector)).toEqual(["table.specs"]);
+  });
+
+  it("refuses a container without the expected label, and one with no expected label", async () => {
+    const { provider, requests } = scriptedProvider([
+      specs(css("table.specs"), "Bracciale"),
+      { fields: { specs: { selectors: [css("main table")], expectedSample: null } } },
+    ]);
+
+    const authored = await author(provider);
+
+    const repairPrompt = requests[1]!.messages.find(message => message.role === "user")!.content;
+    expect(repairPrompt).toContain('read 3 pairs, but no row has the label "Bracciale"');
+    expect(authored.template.fields.specs!.selectors).toEqual([]);
+    expect(authored.warnings[0]).toContain('No working selector found for "specs"');
+  });
+
+  it("refuses a jsonld selector with a reason that names css and xpath", async () => {
+    const { provider, requests } = scriptedProvider([
+      specs({ kind: "jsonld", selector: "jsonld_01:$.specs", attribute: "json" }, "Marca"),
+      { fields: { specs: { selectors: [{ kind: "xpath", selector: "//table[@class='specs']", attribute: "textContent" }], expectedSample: "Marca" } } },
+    ]);
+
+    const authored = await author(provider);
+
+    const repairPrompt = requests[1]!.messages.find(message => message.role === "user")!.content;
+    expect(repairPrompt).toContain("A pairs field needs a css or xpath selector, not jsonld.");
+    expect(authored.template.fields.specs!.selectors.map(selector => selector.kind)).toEqual(["xpath"]);
+    expect(authored.warnings).toContain("No field got a working css selector after 1 repair round(s); the template will not fit when it is reused.");
+  });
+
+  it("gives the count 0 for a selector that matches no element", async () => {
+    const { provider, requests } = scriptedProvider([specs(css("table.spec"), "Marca"), specs(css("table.specs"), "Marca")]);
+
+    await author(provider);
+
+    const repairPrompt = requests[1]!.messages.find(message => message.role === "user")!.content;
+    expect(repairPrompt).toContain('"table.spec" @textContent: read 0 pairs; a pairs field needs 3 or more (Selector matched no elements: table.spec)');
+  });
+});

@@ -8,6 +8,8 @@ export type CandidateExtraction = {
     valid: boolean;
     confidence: number;
     warnings: string[];
+    /** Pairs fields only: the pairs that a css or xpath selector read, 0 when it matched no element. */
+    pairCount?: number;
 };
 
 export type FieldExtractionResult = {
