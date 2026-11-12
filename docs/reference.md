@@ -355,7 +355,7 @@ By default, turbo-crawl keeps the templates as files under `dataDir`. Refer to [
 - `ref` is your id for a template, as a string. turbo-crawl gives it back in `updateTemplate` and `updateListingTemplate`, and as `templateFit.templatePath`.
 - `template` is JSON. Keep all its properties. turbo-crawl reads `id`, `domain`, `urlPatterns` and many other properties.
 
-**An update must be one operation.** Two calls can fit the same template at the same time, and each call adds a URL pattern. Thus `updateTemplate` and `updateListingTemplate` must read, change and save the template without a different write between these steps. For example, in SQL, read the row with `SELECT … FOR UPDATE` in a transaction. In `update`, turbo-crawl merges the patterns and keeps a maximum of 20 patterns. Your store does not have to merge or limit the patterns.
+**An update must be one operation.** Two calls can fit the same template at the same time, and each call adds a URL pattern. Thus `updateTemplate` and `updateListingTemplate` must read, change and save the template without a different write between these steps. For example, in SQL, read the row with `SELECT … FOR UPDATE` in a transaction. In `update`, turbo-crawl merges the patterns and keeps a maximum of 20 patterns. Your store does not have to merge or limit the patterns. When a pattern already matches the URL, `update` returns the same object that it got. Your store can then skip the write.
 
 turbo-crawl examines each template from the store in the same way as a template file. When a template is not valid, turbo-crawl ignores it and adds a warning to the result, for example `The template row-3 from the store was ignored: …`.
 

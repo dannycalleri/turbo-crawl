@@ -10,7 +10,7 @@ import type {
     FieldExtractionResult,
 } from "./types";
 import { readSelectorValue } from "./selectorValueReader";
-import { pairsValue, readPairsSelector } from "./pairsReader";
+import { pairsValue, readPairsSelector, readsPairs } from "./pairsReader";
 
 export async function extractFieldWithTemplate(input: {
     page: Page;
@@ -31,7 +31,7 @@ export async function extractFieldWithTemplate(input: {
             valid: value !== null,
             confidence: selector.score,
             warnings: readWarnings,
-            ...(selector.kind === "css" || selector.kind === "xpath" ? { pairCount: read.pairs === null ? 0 : Object.keys(read.pairs).length } : {}),
+            ...(readsPairs(selector) ? { pairCount: read.pairs === null ? 0 : Object.keys(read.pairs).length } : {}),
         };
     };
 

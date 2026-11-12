@@ -35,13 +35,13 @@ export function normalizeValue(input: {
 
 function normalizePairs(value: unknown): Record<string, string> | null {
     if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-    const pairs: Record<string, string> = {};
+    const pairs = new Map<string, string>();
     for (const [label, text] of Object.entries(value)) {
         const cleanLabel = normalizeString(label);
         const cleanText = typeof text === "string" ? normalizeString(text) : null;
-        if (cleanLabel && cleanText && !(cleanLabel in pairs)) pairs[cleanLabel] = cleanText;
+        if (cleanLabel && cleanText && !pairs.has(cleanLabel)) pairs.set(cleanLabel, cleanText);
     }
-    return Object.keys(pairs).length >= MIN_PAIRS ? pairs : null;
+    return pairs.size >= MIN_PAIRS ? Object.fromEntries(pairs) : null;
 }
 
 function normalizeString(value: unknown): string | null {
@@ -93,7 +93,7 @@ function withDotDecimal(raw: string): string | null {
 
     const [whole = "", ...groups] = raw.split(separator);
     if (groups.length > 1) {
-        return groups.every(group => group.length === 3) ? whole + groups.join("") : null;
+        return /^-?\d{1,3}$/.test(whole) && groups.every(group => group.length === 3) ? whole + groups.join("") : null;
     }
     const fraction = groups[0] ?? "";
     // "0.500" is half, not five hundred.
